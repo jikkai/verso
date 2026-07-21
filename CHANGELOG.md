@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.0-rc.2](https://github.com/dream-num/verso/compare/v1.0.0-rc.1...v1.0.0-rc.2) (2026-07-21)
+
+### Features
+
+* **release:** harden release flow and refresh tooling ([cf7e2e7](https://github.com/dream-num/verso/commit/cf7e2e75ed0b324ce6789fdfeb6c50d03a0398d9))
+
+### Other Changes (docs)
+
+* add docs site ([0e4c515](https://github.com/dream-num/verso/commit/0e4c5153131d2187b25349651807191ba2354e7a))
+
 ## [1.0.0-rc.1](https://github.com/dream-num/verso/compare/v1.0.0-rc.0...v1.0.0-rc.1) (2026-06-30)
 
 ### Other Changes (build)
