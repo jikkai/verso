@@ -1,0 +1,54 @@
+---
+title: 发布流程
+description: 了解 Verso 修改哪些内容、各阶段的顺序，以及某个阶段失败后会发生什么。
+---
+
+## 发布边界
+
+Verso 按固定顺序处理仓库的发布元数据：
+
+1. 读取 `verso.toml` 并发现 manifest。
+2. 从 `--version` 或交互式版本选择器确定目标版本。
+3. 更新 package manifest、配置的 Cargo manifest 和 lockfile，以及 changelog。
+4. 创建 release commit。
+5. 创建准确的 release tag。
+6. 原子推送当前上游分支和 tag。
+
+钩子在这些阶段之间执行。`--dry-run` 会跳过所有写入、会修改状态的 Git 命令，以及可能改变项目的钩子。
+
+## 写入文件之前
+
+Verso 默认要求工作区干净，避免发布文件和无关修改混在一起。
+
+设置 `git.require_clean_worktree = false` 后，可以保留无关的未暂存修改，但 Git index、release
+manifest、Cargo lockfile 和 changelog 仍必须干净。Verso 不会覆盖或提交这些文件中已有的工作。
+
+## 本地回滚
+
+如果文件已经修改，但推送成功前的某个本地阶段失败，Verso 会还原发布文件，并只移除自己加入的暂存内容。
+目标是让仓库回到发布前的状态，同时保留无关工作。
+
+项目钩子失败也遵循相同的阶段化回滚。失败的钩子会终止发布，后续 commit、tag 或 push 都不会运行。
+
+## 原子推送
+
+当前上游分支和准确的 release tag 会一起推送。远端要么同时接收两个 ref，要么都不接收，避免出现没有
+commit 的远端 tag，或没有 tag 的 release commit。
+
+```text
+本地分支 + 本地 tag
+          |
+          | git push --atomic
+          v
+远端分支 + 远端 tag
+```
+
+如果推送本身失败，Verso 会保留本地 release commit 和 tag。此时本地发布状态完整且可恢复；自动删除
+反而会隐藏有用状态，还可能破坏后续处理。
+
+## 交给 CI
+
+Verso 在分支和 tag 推送后结束。由 tag 触发的 CI 可以继续构建二进制文件、发布软件包、附加 provenance，
+并创建 GitHub Release。把这些工作留在 CLI 之外，可以让凭据和平台发布策略继续由 CI 管理。
+
+接入自动化前，先在目标仓库运行 `verso doctor` 和 `verso --dry-run --json`，确认软件包发现和发布计划。

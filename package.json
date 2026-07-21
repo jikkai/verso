@@ -20,13 +20,16 @@
     "prepare": "simple-git-hooks",
     "precommit": "pnpm run format:check && pnpm run lint",
     "build": "pnpm --filter @univerkit/verso build",
-    "check": "pnpm run format:check && pnpm run lint && pnpm run check:scripts && pnpm run check:rust && pnpm run check:npm",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run check:scripts && pnpm run check:docs && pnpm run check:rust && pnpm run check:npm",
+    "check:docs": "pnpm --filter @univerkit/verso-docs types:check && pnpm --filter @univerkit/verso-docs build",
     "check:npm": "pnpm --filter @univerkit/verso typecheck && pnpm --filter @univerkit/verso test",
     "check:rust": "cargo fmt --check && cargo clippy --locked --all-targets --all-features -- -D warnings && cargo test --locked --all",
     "check:scripts": "tsc -p tsconfig.json --noEmit",
     "format": "oxfmt --write scripts packages/verso/src packages/verso/scripts && cargo fmt",
     "format:check": "oxfmt --check scripts packages/verso/src packages/verso/scripts && cargo fmt --check",
     "lint": "oxlint --ignore-path .oxlintignore .",
+    "docs:dev": "pnpm --filter @univerkit/verso-docs dev",
+    "docs:build": "pnpm --filter @univerkit/verso-docs build",
     "release": "cargo run -p verso"
   },
   "simple-git-hooks": {

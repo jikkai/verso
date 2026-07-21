@@ -5,6 +5,9 @@
 /packages/*/bin/
 /packages/*/verso
 /packages/*/verso.exe
+/apps/docs/.source/
+/apps/docs/dist/
+/apps/docs/node_modules/
 *.tgz
 .DS_Store
 

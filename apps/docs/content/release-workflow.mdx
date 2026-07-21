@@ -1,0 +1,62 @@
+---
+title: Release workflow
+description: What Verso changes, how each stage is ordered, and what happens when a stage fails.
+---
+
+## The release boundary
+
+Verso performs one ordered transaction around the repository's release metadata:
+
+1. Read `verso.toml` and discover manifests.
+2. Resolve the target version from `--version` or the interactive selector.
+3. Update package manifests, configured Cargo manifests and lockfiles, and the changelog.
+4. Create the release commit.
+5. Create the exact release tag.
+6. Atomically push the current upstream branch and tag.
+
+Hooks run between these stages. `--dry-run` stops before every write, mutating Git command, and hook
+that could change the project.
+
+## Before files change
+
+By default, Verso requires a clean worktree. This protects release files from being mixed with
+unrelated edits.
+
+When `git.require_clean_worktree = false`, unrelated unstaged edits are allowed, but the Git index,
+release manifests, Cargo lockfiles, and changelog must still be clean. Verso does not overwrite or
+commit pre-existing work in those files.
+
+## Local rollback
+
+If a local stage fails after files have changed but before the push succeeds, Verso restores release
+files and removes only the changes it staged. The goal is to return the repository to its pre-release
+state without discarding unrelated work.
+
+Failures in project hooks follow the same stage-aware rollback path. A failed hook stops the release;
+later commit, tag, or push stages do not run.
+
+## Atomic push
+
+The current upstream branch and exact release tag are pushed together. The remote accepts both refs
+or neither, avoiding a remote tag without its commit or a release commit without its tag.
+
+```text
+local branch + local tag
+          |
+          | git push --atomic
+          v
+remote branch + remote tag
+```
+
+If the push itself fails, Verso keeps the local release commit and tag. At that point the local
+release is complete and recoverable; deleting it automatically would hide useful state and could
+destroy follow-up work.
+
+## CI handoff
+
+Verso ends after the branch and tag are pushed. A tag-triggered CI workflow can then build binaries,
+publish packages, attach provenance, and create a GitHub Release. Keeping that work outside the CLI
+makes credentials and platform-specific publishing policy the CI system's responsibility.
+
+Before automating the handoff, run `verso doctor` and `verso --dry-run --json` in the target repository
+to confirm package discovery and the release plan.

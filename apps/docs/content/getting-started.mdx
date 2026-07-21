@@ -1,0 +1,88 @@
+---
+title: Getting started
+description: Install Verso, initialize a project, validate it, and preview the first release.
+---
+
+## Requirements
+
+Verso is distributed as an npm package with native binaries for supported platforms. The repository
+that you release needs Git, a package manifest, and an upstream branch. Node.js 22.18 or newer is
+required by the npm package.
+
+## Install
+
+Add Verso to the root of the workspace:
+
+```sh
+pnpm add -D @univerkit/verso
+```
+
+Then expose it through the root manifest:
+
+```json
+{
+  "scripts": {
+    "release": "verso"
+  }
+}
+```
+
+## Initialize the config
+
+Run the initializer from the repository root:
+
+```sh
+pnpm release -- init
+```
+
+The initializer writes `verso.toml` and detects `packages/*` when that workspace shape exists.
+Use `--single` or `--workspace` to choose explicitly, and `--force` only when you intend to replace
+an existing config.
+
+## Validate before releasing
+
+`doctor` checks config parsing, package discovery, version consistency, changelog and Cargo paths,
+plus Git upstream readiness:
+
+```sh
+pnpm release -- doctor
+```
+
+For CI or other automation, use structured output:
+
+```sh
+pnpm release -- doctor --json
+```
+
+## Preview the first release
+
+Always inspect the plan before the first real run:
+
+```sh
+pnpm release -- --dry-run
+```
+
+The preview shows discovered packages, the resolved current and target versions, files that would
+change, changelog content, hooks, and Git actions. It does not write files or run mutating Git
+commands.
+
+When the plan is correct, choose a version interactively:
+
+```sh
+pnpm release
+```
+
+Or pass an exact semantic version for automation:
+
+```sh
+pnpm release -- --version 1.4.0 --yes
+```
+
+`--yes` skips confirmation; it does not choose a version. Without `--version`, version selection is
+still interactive.
+
+## Next steps
+
+- Adjust package discovery and release hooks in [Configuration](./configuration).
+- Review every command and option in the [CLI reference](./cli-reference).
+- Learn what is rolled back in [Release workflow](./release-workflow).

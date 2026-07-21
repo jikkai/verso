@@ -1,0 +1,78 @@
+---
+title: CLI reference
+description: Commands and options available in the Verso command-line interface.
+---
+
+## Release command
+
+Running `verso` without a subcommand starts a release:
+
+```sh
+verso [OPTIONS]
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--dry-run` | `false` | Preview the release without writing files or running mutating Git commands |
+| `--json` | `false` | Print dry-run output as JSON; must be used with `--dry-run` |
+| `--version <SEMVER>` | None | Use an exact target version without interactive selection |
+| `--config <PATH>` | `verso.toml` | Read a different config file |
+| `--yes` | `false` | Skip confirmation prompts; does not choose a version |
+| `-V`, `--tool-version` | None | Print the Verso CLI version and exit |
+| `--help` | None | Print command help |
+
+Common examples:
+
+```sh
+verso --dry-run
+verso --dry-run --json
+verso --version 0.26.0
+verso --version 0.26.0-beta.1 --yes
+verso --config config/release.toml
+verso --tool-version
+```
+
+Without `--version`, the interactive menu offers patch, minor, major, alpha, beta, rc, and custom
+semantic versions. When the current version is a prerelease, it also offers the corresponding stable
+version. Prerelease channels prompt for a base version.
+
+When stdin or stdout is not a terminal, Verso keeps a plain-text prompt fallback. Scripted input can
+choose by name, such as `beta` followed by `minor`.
+
+## `verso init`
+
+Creates a starter `verso.toml`:
+
+```sh
+verso init [--single | --workspace] [--force]
+```
+
+| Option | Description |
+| --- | --- |
+| `--single` | Generate a single-package config |
+| `--workspace` | Generate a workspace config |
+| `--force` | Replace an existing config |
+
+Without an explicit mode, the command detects a `packages/*` workspace and otherwise creates a
+single-package config.
+
+## `verso doctor`
+
+Validates release readiness without starting a release:
+
+```sh
+verso doctor [--json]
+```
+
+The checks cover config parsing, package discovery, version consistency, changelog and Cargo paths,
+plus the current branch's Git upstream. `--json` produces structured output for CI.
+
+## Package-manager scripts
+
+When Verso is installed as a dev dependency, remember the argument separator used by the package
+manager:
+
+```sh
+pnpm release -- --dry-run
+pnpm release -- doctor --json
+```

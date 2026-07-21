@@ -1,0 +1,104 @@
+---
+title: 配置参考
+description: 配置软件包发现、版本文件、changelog、Git 行为和发布钩子。
+---
+
+Verso 默认读取当前目录的 `verso.toml`。所有配置项都可选。配置文件不存在时，只要仓库根目录有
+`package.json`，Verso 就可以使用内置默认值。
+
+## 初始配置
+
+```toml
+[version]
+root_package = "package.json"
+require_consistent_versions = true
+cargo_manifest_paths = []
+
+[workspaces]
+patterns = []
+include_root = true
+ignore = []
+use_gitignore = true
+
+[changelog]
+infile = "CHANGELOG.md"
+preset = "angular"
+
+[git]
+require_clean_worktree = true
+commit_message = "chore(release): release v${version}"
+tag_name = "v${version}"
+push = "atomic"
+
+[hooks]
+# before_version = "pnpm test"
+# after_version = "pnpm build"
+# before_commit = "pnpm lint"
+# after_push = "node scripts/notify-release.mts"
+
+[github_release]
+enabled = false
+```
+
+## Workspace 发现
+
+大多数 workspace 只需要配置 `workspaces.patterns`。模式相对于配置文件所在目录，支持 `*`、
+`**`、`?`、字符类、brace 和 `!` 排除。
+
+`patterns` 为空时，Verso 会读取 `pnpm-workspace.yaml` 或根 package manifest 的 `workspaces`
+字段。两者都不存在时，回退到单包模式。
+
+| 配置项 | 默认值 | 用途 |
+| --- | --- | --- |
+| `patterns` | `[]` | 用于发现软件包目录的 workspace glob |
+| `include_root` | `true` | 包含 `version.root_package` 选中的根软件包 |
+| `ignore` | `[]` | 额外排除的路径或目录名模式 |
+| `use_gitignore` | `true` | 发现过程中读取根目录和子目录的 `.gitignore` |
+
+软件包发现支持 `package.json`、`package.json5`、`package.yaml` 和 `package.yml`。同一目录存在多个
+manifest 时，Verso 按这个顺序选择。
+
+## 版本文件
+
+`version.root_package` 指定用于读取当前版本、并参与更新的 manifest。路径必须留在配置目录内。
+
+发布时还需要更新 Rust crate，可以配置 `version.cargo_manifest_paths`：
+
+```toml
+[version]
+cargo_manifest_paths = ["crates/cli/Cargo.toml"]
+```
+
+存在 `Cargo.lock` 时，Verso 会更新距离对应 manifest 最近的 lockfile。开启
+`require_consistent_versions` 后，发布开始前所有已发现的软件包和配置的 Cargo 版本必须一致。
+
+## Changelog 和 Git
+
+目前只支持 Angular changelog preset。默认 release commit 和 tag 为：
+
+```toml
+[git]
+commit_message = "chore(release): release v${version}"
+tag_name = "v${version}"
+push = "atomic"
+```
+
+Tag 模板必须包含 `${version}`。`atomic` 是唯一的推送模式；旧的 `follow-tags` 值会作为兼容别名，
+并统一使用原子推送行为。
+
+## 发布钩子
+
+钩子在各个发布阶段之间运行，并使用项目的 shell 环境：
+
+| 钩子 | 执行时机 |
+| --- | --- |
+| `before_version` / `after_version` | 更新版本与 changelog 文件前后 |
+| `before_commit` / `after_commit` | 创建 release commit 前后 |
+| `before_tag` / `after_tag` | 创建 tag 前后 |
+| `before_push` / `after_push` | 原子推送前后 |
+
+可以用钩子运行仓库自己的检查、构建或通知。钩子失败后 Verso 会停止，并按当前阶段的规则回滚。
+
+## 暂不支持的选项
+
+`github_release.enabled = true` 会被拒绝。请在 release tag 推送后，由 CI 创建 GitHub Release。
