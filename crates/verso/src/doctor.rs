@@ -1,5 +1,6 @@
 use crate::{
     config::{self, Config},
+    git,
     release::{current_version, release_root, verify_cargo_manifest_versions},
     workspace::{
         discover_packages, resolve_package_manifest, verify_consistent_versions, PackageFile,
@@ -175,6 +176,14 @@ pub fn check(config_path: &Path, allow_missing_default_config: bool) -> DoctorRe
         ));
     }
 
+    match git::release_upstream(&root) {
+        Ok(upstream) => checks.push(pass(
+            "git upstream",
+            format!("ready to push to {}/{}", upstream.remote, upstream.branch),
+        )),
+        Err(error) => checks.push(fail("git upstream", error)),
+    }
+
     report(checks, package_count, current_version_value)
 }
 
@@ -279,6 +288,7 @@ mod tests {
         )
         .map_err(|error| error.to_string())?;
         std::fs::write(temp.path().join("verso.toml"), "").map_err(|error| error.to_string())?;
+        make_git_ready(temp.path())?;
 
         let report = check(&temp.path().join("verso.toml"), true);
 
@@ -310,6 +320,7 @@ mod tests {
             r#"{"name":"root","version":"1.2.3"}"#,
         )
         .map_err(|error| error.to_string())?;
+        make_git_ready(temp.path())?;
 
         let report = check(&temp.path().join("verso.toml"), true);
 
@@ -335,6 +346,45 @@ mod tests {
         assert!(!report.ok);
         assert_eq!(report.checks[1].name, "config");
         assert_eq!(report.checks[1].status, DoctorStatus::Fail);
+        Ok(())
+    }
+
+    #[test]
+    fn doctor_reports_a_missing_git_upstream() -> Result<(), String> {
+        let temp = TempDir::new().map_err(|error| error.to_string())?;
+        std::fs::write(
+            temp.path().join("package.json"),
+            r#"{"name":"root","version":"1.2.3"}"#,
+        )
+        .map_err(|error| error.to_string())?;
+        std::fs::write(temp.path().join("verso.toml"), "").map_err(|error| error.to_string())?;
+        crate::git::git(temp.path(), &["init"])?;
+        crate::git::git(temp.path(), &["config", "user.email", "test@example.com"])?;
+        crate::git::git(temp.path(), &["config", "user.name", "Test User"])?;
+        crate::git::git(temp.path(), &["add", "package.json", "verso.toml"])?;
+        crate::git::git(temp.path(), &["commit", "-m", "feat: initial"])?;
+
+        let report = check(&temp.path().join("verso.toml"), true);
+
+        assert!(!report.ok);
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| check.name == "git upstream" && check.status == DoctorStatus::Fail));
+        Ok(())
+    }
+
+    fn make_git_ready(root: &Path) -> Result<(), String> {
+        crate::git::git(root, &["init"])?;
+        crate::git::git(root, &["config", "user.email", "test@example.com"])?;
+        crate::git::git(root, &["config", "user.name", "Test User"])?;
+        crate::git::git(root, &["add", "."])?;
+        crate::git::git(root, &["commit", "-m", "feat: initial"])?;
+        let remote = root.join(".git/release-test-remote.git");
+        let remote = remote.to_string_lossy();
+        crate::git::git(root, &["init", "--bare", &remote])?;
+        crate::git::git(root, &["remote", "add", "origin", &remote])?;
+        crate::git::git(root, &["push", "-u", "origin", "HEAD"])?;
         Ok(())
     }
 }

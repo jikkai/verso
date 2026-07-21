@@ -813,7 +813,7 @@ mod tests {
                 require_clean_worktree: true,
                 commit_message: "chore(release): release v${version}".to_owned(),
                 tag_name: "v${version}".to_owned(),
-                push: "follow-tags".to_owned(),
+                push: "atomic".to_owned(),
             },
             hooks: HooksConfig::default(),
             github_release: GithubReleaseConfig { enabled: false },

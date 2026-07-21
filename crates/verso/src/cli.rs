@@ -9,7 +9,7 @@ pub const DEFAULT_CONFIG_PATH: &str = "verso.toml";
     version,
     disable_version_flag = true,
     about = "Release configured workspace packages with changelog, git tag, and push",
-    long_about = "Verso is a focused release CLI. It reads verso.toml, updates package versions, generates an angular-style changelog, commits, tags, and pushes with git push --follow-tags. Use --dry-run to preview without changing files."
+    long_about = "Verso is a focused release CLI. It reads verso.toml, updates package versions, generates an angular-style changelog, commits, tags, and atomically pushes the current upstream branch and release tag. Use --dry-run to preview without changing files."
 )]
 pub struct Cli {
     #[command(subcommand)]

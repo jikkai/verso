@@ -74,8 +74,25 @@ pub fn run(cli: Cli) -> Result<(), String> {
         return Ok(());
     }
 
-    if config.git.require_clean_worktree && !git::is_worktree_clean(&root)? {
-        return Err(dirty_worktree_error());
+    let upstream = git::release_upstream(&root)?;
+    if config.git.require_clean_worktree {
+        if !git::is_worktree_clean(&root)? {
+            return Err(dirty_worktree_error());
+        }
+    } else {
+        if !git::is_index_clean(&root)? {
+            return Err(dirty_index_error());
+        }
+        let release_paths = package_files
+            .iter()
+            .chain(extra_version_files.iter())
+            .chain(std::iter::once(&changelog_file))
+            .cloned()
+            .collect::<Vec<_>>();
+        let release_paths = relative_path_strings(&root, &release_paths);
+        if !git::are_paths_clean(&root, &release_paths)? {
+            return Err(dirty_release_files_error());
+        }
     }
     if git::tag_exists(&root, &tag_name)? {
         return Err(existing_tag_error(&tag_name));
@@ -173,9 +190,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
             error,
         ));
     }
-    git::git(&root, &["push", "--follow-tags"]).map_err(|error| {
+    git::push_release(&root, &upstream, &tag_name).map_err(|error| {
         format!(
-            "{error}\nLocal release commit and tag were created. Fix the remote problem and rerun: git push --follow-tags"
+            "{error}\nLocal release commit and tag were created. Fix the remote problem, then push the current branch and tag {tag_name}."
         )
     })?;
     run_hook(&root, "after_push", &config.hooks.after_push)?;
@@ -194,71 +211,71 @@ fn resolve_target_version(
     current: &Version,
     assume_yes: bool,
 ) -> Result<Version, String> {
-    match input {
-        Some(version) => {
-            let target = parse_custom_version(version)?;
-            confirm_non_forward_version(current, &target, assume_yes)?;
-            Ok(target)
-        }
-        None => prompt_target_version(current, assume_yes),
-    }
+    let target = match input {
+        Some(version) => parse_custom_version(version)?,
+        None => prompt_target_version(current)?,
+    };
+    confirm_non_forward_version(current, &target, assume_yes)?;
+    Ok(target)
 }
 
-fn prompt_target_version(current: &Version, assume_yes: bool) -> Result<Version, String> {
+fn prompt_target_version(current: &Version) -> Result<Version, String> {
     if interactive_terminal() {
-        return prompt_target_version_select(current, assume_yes);
+        return prompt_target_version_select(current);
     }
 
-    prompt_target_version_text(current, assume_yes)
+    prompt_target_version_text(current)
 }
 
-fn prompt_target_version_select(current: &Version, assume_yes: bool) -> Result<Version, String> {
-    match Select::new("Select target version", target_version_choices(current))
+fn prompt_target_version_select(current: &Version) -> Result<Version, String> {
+    let choice = Select::new("Select target version", target_version_choices(current))
         .prompt()
-        .map_err(inquire_error)?
-    {
-        TargetVersionChoice::Patch(version)
+        .map_err(inquire_error)?;
+    resolve_target_version_choice(choice, current)
+}
+
+fn resolve_target_version_choice(
+    choice: TargetVersionChoice,
+    current: &Version,
+) -> Result<Version, String> {
+    match choice {
+        TargetVersionChoice::Stable(version)
+        | TargetVersionChoice::Patch(version)
         | TargetVersionChoice::Minor(version)
         | TargetVersionChoice::Major(version) => Ok(version),
         TargetVersionChoice::Alpha => prompt_prerelease_version(current, PrereleaseChannel::Alpha),
         TargetVersionChoice::Beta => prompt_prerelease_version(current, PrereleaseChannel::Beta),
         TargetVersionChoice::Rc => prompt_prerelease_version(current, PrereleaseChannel::Rc),
-        TargetVersionChoice::Custom => {
-            let target = parse_custom_version(&prompt_text("Version")?)?;
-            confirm_non_forward_version(current, &target, assume_yes)?;
-            Ok(target)
-        }
+        TargetVersionChoice::Custom => parse_custom_version(&prompt_text("Version")?),
     }
 }
 
-fn prompt_target_version_text(current: &Version, assume_yes: bool) -> Result<Version, String> {
+fn prompt_target_version_text(current: &Version) -> Result<Version, String> {
     loop {
-        let patch = bump_stable(current, BaseBump::Patch);
-        let minor = bump_stable(current, BaseBump::Minor);
-        let major = bump_stable(current, BaseBump::Major);
+        let choices = target_version_choices(current);
 
         println!("Select target version:");
-        println!("  1) patch ({patch})");
-        println!("  2) minor ({minor})");
-        println!("  3) major ({major})");
-        println!("  4) alpha");
-        println!("  5) beta");
-        println!("  6) rc");
-        println!("  7) custom semver");
+        for (index, choice) in choices.iter().enumerate() {
+            println!("  {}) {choice}", index + 1);
+        }
 
-        match read_prompt("Choice: ")?.as_str() {
-            "1" | "patch" => return Ok(patch),
-            "2" | "minor" => return Ok(minor),
-            "3" | "major" => return Ok(major),
-            "4" | "alpha" => return prompt_prerelease_version(current, PrereleaseChannel::Alpha),
-            "5" | "beta" => return prompt_prerelease_version(current, PrereleaseChannel::Beta),
-            "6" | "rc" => return prompt_prerelease_version(current, PrereleaseChannel::Rc),
-            "7" | "custom" => {
-                let target = parse_custom_version(&read_prompt("Version: ")?)?;
-                confirm_non_forward_version(current, &target, assume_yes)?;
-                return Ok(target);
+        let answer = read_prompt("Choice: ")?;
+        let choice = answer
+            .parse::<usize>()
+            .ok()
+            .and_then(|index| index.checked_sub(1))
+            .and_then(|index| choices.get(index).cloned())
+            .or_else(|| {
+                choices
+                    .iter()
+                    .find(|choice| choice.keyword() == answer)
+                    .cloned()
+            });
+        match choice {
+            Some(choice) => return resolve_target_version_choice(choice, current),
+            None => {
+                println!("Please choose stable, patch, minor, major, alpha, beta, rc, or custom.")
             }
-            _ => println!("Please choose patch, minor, major, alpha, beta, rc, or custom."),
         }
     }
 }
@@ -272,7 +289,7 @@ fn confirm_non_forward_version(
         return Ok(());
     }
 
-    confirm_default_yes("Target version is not greater than current version. Continue?")
+    confirm_default_no("Target version is not greater than current version. Continue?")
 }
 
 fn prompt_prerelease_version(
@@ -338,6 +355,7 @@ fn prompt_prerelease_version_text(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TargetVersionChoice {
+    Stable(Version),
     Patch(Version),
     Minor(Version),
     Major(Version),
@@ -350,6 +368,7 @@ enum TargetVersionChoice {
 impl fmt::Display for TargetVersionChoice {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            TargetVersionChoice::Stable(version) => write!(formatter, "stable ({version})"),
             TargetVersionChoice::Patch(version) => write!(formatter, "patch ({version})"),
             TargetVersionChoice::Minor(version) => write!(formatter, "minor ({version})"),
             TargetVersionChoice::Major(version) => write!(formatter, "major ({version})"),
@@ -357,6 +376,21 @@ impl fmt::Display for TargetVersionChoice {
             TargetVersionChoice::Beta => formatter.write_str("beta"),
             TargetVersionChoice::Rc => formatter.write_str("rc"),
             TargetVersionChoice::Custom => formatter.write_str("custom semver"),
+        }
+    }
+}
+
+impl TargetVersionChoice {
+    fn keyword(&self) -> &str {
+        match self {
+            TargetVersionChoice::Stable(_) => "stable",
+            TargetVersionChoice::Patch(_) => "patch",
+            TargetVersionChoice::Minor(_) => "minor",
+            TargetVersionChoice::Major(_) => "major",
+            TargetVersionChoice::Alpha => "alpha",
+            TargetVersionChoice::Beta => "beta",
+            TargetVersionChoice::Rc => "rc",
+            TargetVersionChoice::Custom => "custom",
         }
     }
 }
@@ -381,7 +415,15 @@ impl fmt::Display for PrereleaseBaseChoice {
 }
 
 fn target_version_choices(current: &Version) -> Vec<TargetVersionChoice> {
-    vec![
+    let mut choices = Vec::new();
+    if !current.pre.is_empty() {
+        choices.push(TargetVersionChoice::Stable(Version::new(
+            current.major,
+            current.minor,
+            current.patch,
+        )));
+    }
+    choices.extend([
         TargetVersionChoice::Patch(bump_stable(current, BaseBump::Patch)),
         TargetVersionChoice::Minor(bump_stable(current, BaseBump::Minor)),
         TargetVersionChoice::Major(bump_stable(current, BaseBump::Major)),
@@ -389,7 +431,8 @@ fn target_version_choices(current: &Version) -> Vec<TargetVersionChoice> {
         TargetVersionChoice::Beta,
         TargetVersionChoice::Rc,
         TargetVersionChoice::Custom,
-    ]
+    ]);
+    choices
 }
 
 fn prerelease_base_choices(
@@ -442,6 +485,25 @@ fn confirm_default_yes(question: &str) -> Result<(), String> {
     let answer = read_prompt(&format!("{question} [Y/n] "))?;
     match answer.as_str() {
         "" | "y" | "Y" | "yes" | "YES" | "Yes" => Ok(()),
+        _ => Err("release aborted".to_string()),
+    }
+}
+
+fn confirm_default_no(question: &str) -> Result<(), String> {
+    if interactive_terminal() {
+        return match Confirm::new(question)
+            .with_default(false)
+            .prompt()
+            .map_err(inquire_error)?
+        {
+            true => Ok(()),
+            false => Err("release aborted".to_string()),
+        };
+    }
+
+    let answer = read_prompt(&format!("{question} [y/N] "))?;
+    match answer.as_str() {
+        "y" | "Y" | "yes" | "YES" | "Yes" => Ok(()),
         _ => Err("release aborted".to_string()),
     }
 }
@@ -609,6 +671,24 @@ fn dirty_worktree_error() -> String {
         "Commit, stash, or revert local changes before releasing.",
         "Run with --dry-run to preview without requiring a clean worktree.",
         "If dirty releases are intentional, set git.require_clean_worktree = false in verso.toml.",
+    ]
+    .join("\n")
+}
+
+fn dirty_release_files_error() -> String {
+    [
+        "release files are dirty",
+        "Commit, stash, or revert changes to package manifests, Cargo manifests and lockfiles, or the changelog before releasing.",
+        "git.require_clean_worktree = false only permits changes to unrelated files.",
+    ]
+    .join("\n")
+}
+
+fn dirty_index_error() -> String {
+    [
+        "Git index is not clean",
+        "Commit or unstage existing staged changes before releasing.",
+        "Verso will not include unrelated staged files in a release commit.",
     ]
     .join("\n")
 }
@@ -1076,6 +1156,17 @@ mod tests {
 
         assert_eq!(updated, "# Changelog\n\n## 0.2.0\n\n* feature\n\nold");
         assert_eq!(crlf_updated, "# Changelog\n\n## 0.2.0\n\n* feature\n\nold");
+        Ok(())
+    }
+
+    #[test]
+    fn prerelease_target_choices_include_the_current_stable_version() -> Result<(), String> {
+        let current = Version::parse("1.0.0-rc.2").map_err(|error| error.to_string())?;
+
+        assert_eq!(
+            target_version_choices(&current).first(),
+            Some(&TargetVersionChoice::Stable(Version::new(1, 0, 0)))
+        );
         Ok(())
     }
 

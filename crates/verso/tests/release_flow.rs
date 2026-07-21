@@ -39,7 +39,7 @@ include_root = true
         .stdout(predicate::str::contains("Verso dry run"))
         .stdout(predicate::str::contains("Version updates"))
         .stdout(predicate::str::contains("git tag -a 'v0.2.0' -m 'v0.2.0'"))
-        .stdout(predicate::str::contains("git push --follow-tags"));
+        .stdout(predicate::str::contains("git push --atomic"));
 
     assert_eq!(
         fs::read_to_string(repo.path().join("package.json"))?,
@@ -188,7 +188,7 @@ fn release_updates_versions_changelog_commit_and_tag_before_push(
         .stderr(predicate::str::contains(
             "Local release commit and tag were created",
         ))
-        .stderr(predicate::str::contains("git push --follow-tags"));
+        .stderr(predicate::str::contains("git push --atomic"));
 
     assert!(
         fs::read_to_string(repo.path().join("package.json"))?.contains("\"version\": \"0.2.0\"")
@@ -245,7 +245,7 @@ before_push = "git config --file hook.log --add hooks.step before_push"
         .args(["--version", "0.2.0", "--yes"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("git push --follow-tags"));
+        .stderr(predicate::str::contains("git push --atomic"));
 
     assert_eq!(
         git_stdout(
@@ -324,7 +324,7 @@ fn release_prompts_before_each_mutating_step() -> Result<(), Box<dyn std::error:
         .stdout(predicate::str::contains(
             "Push release commit and tag? [Y/n]",
         ))
-        .stderr(predicate::str::contains("git push --follow-tags"));
+        .stderr(predicate::str::contains("git push --atomic"));
 
     Ok(())
 }
@@ -350,7 +350,7 @@ fn release_confirmation_defaults_to_yes() -> Result<(), Box<dyn std::error::Erro
         .stdout(predicate::str::contains(
             "Push release commit and tag? [Y/n]",
         ))
-        .stderr(predicate::str::contains("git push --follow-tags"));
+        .stderr(predicate::str::contains("git push --atomic"));
 
     assert!(
         fs::read_to_string(repo.path().join("package.json"))?.contains("\"version\": \"0.2.0\"")
@@ -521,6 +521,174 @@ fn existing_tag_blocks_release_without_writing_files() -> Result<(), Box<dyn std
 }
 
 #[test]
+fn behind_upstream_blocks_release_before_writing_files() -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    git(repo.path(), &["remote", "remove", "origin"])?;
+    let remote = repo.path().join(".git/release-test-remote.git");
+    git(
+        repo.path(),
+        &["init", "--bare", remote.to_str().ok_or("non-UTF-8 path")?],
+    )?;
+    git(
+        repo.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            remote.to_str().ok_or("non-UTF-8 path")?,
+        ],
+    )?;
+    git(repo.path(), &["push", "-u", "origin", "HEAD"])?;
+    write_file(&repo.path().join("remote-only.md"), "remote")?;
+    git(repo.path(), &["add", "remote-only.md"])?;
+    git(repo.path(), &["commit", "-m", "feat: remote only"])?;
+    git(repo.path(), &["push"])?;
+    git(repo.path(), &["reset", "--hard", "HEAD~1"])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is behind"));
+
+    assert!(
+        fs::read_to_string(repo.path().join("package.json"))?.contains("\"version\": \"0.1.0\"")
+    );
+    assert_eq!(git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?, "");
+    Ok(())
+}
+
+#[test]
+fn dirty_release_files_are_rejected_when_global_clean_check_is_disabled(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    write_file(
+        &repo.path().join("verso.toml"),
+        r#"
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+
+[git]
+require_clean_worktree = false
+"#,
+    )?;
+    git(repo.path(), &["add", "verso.toml"])?;
+    git(
+        repo.path(),
+        &["commit", "-m", "test: allow unrelated dirty files"],
+    )?;
+    write_file(
+        &repo.path().join("package.json"),
+        "{\n  \"name\": \"root\",\n  \"version\": \"0.1.0\",\n  \"private\": true\n}\n",
+    )?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("release files are dirty"));
+
+    assert!(
+        fs::read_to_string(repo.path().join("package.json"))?.contains("\"version\": \"0.1.0\"")
+    );
+    assert_eq!(git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?, "");
+    Ok(())
+}
+
+#[test]
+fn staged_unrelated_files_are_rejected_when_global_clean_check_is_disabled(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    write_file(
+        &repo.path().join("verso.toml"),
+        r#"
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+
+[git]
+require_clean_worktree = false
+"#,
+    )?;
+    git(repo.path(), &["add", "verso.toml"])?;
+    git(
+        repo.path(),
+        &["commit", "-m", "test: allow unrelated dirty files"],
+    )?;
+    write_file(&repo.path().join("notes.md"), "do not release\n")?;
+    git(repo.path(), &["add", "notes.md"])?;
+    let before_head = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Git index is not clean"));
+
+    assert_eq!(
+        git_stdout(repo.path(), &["rev-parse", "HEAD"])?,
+        before_head
+    );
+    assert!(
+        git_stdout(repo.path(), &["diff", "--cached", "--name-only"])?
+            .lines()
+            .any(|path| path == "notes.md")
+    );
+    assert_eq!(git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?, "");
+    Ok(())
+}
+
+#[test]
+fn unstaged_unrelated_files_are_preserved_when_global_clean_check_is_disabled(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    write_file(
+        &repo.path().join("verso.toml"),
+        r#"
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+
+[git]
+require_clean_worktree = false
+"#,
+    )?;
+    write_file(&repo.path().join("notes.md"), "keep this\n")?;
+    git(repo.path(), &["add", "verso.toml", "notes.md"])?;
+    git(
+        repo.path(),
+        &["commit", "-m", "test: allow unrelated dirty files"],
+    )?;
+    write_file(&repo.path().join("notes.md"), "keep this update\n")?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("git push --atomic"));
+
+    assert_eq!(
+        fs::read_to_string(repo.path().join("notes.md"))?,
+        "keep this update\n"
+    );
+    assert!(
+        !git_stdout(repo.path(), &["show", "--format=", "--name-only", "HEAD"])?
+            .lines()
+            .any(|path| path == "notes.md")
+    );
+    Ok(())
+}
+
+#[test]
 fn commit_failure_unstages_and_rolls_back_release_files() -> Result<(), Box<dyn std::error::Error>>
 {
     let repo = TempDir::new()?;
@@ -622,7 +790,7 @@ fn explicit_non_forward_version_requires_confirmation() -> Result<(), Box<dyn st
         .assert()
         .failure()
         .stdout(predicate::str::contains(
-            "Target version is not greater than current version. Continue? [Y/n]",
+            "Target version is not greater than current version. Continue? [y/N]",
         ))
         .stderr(predicate::str::contains("release aborted"));
 
@@ -633,7 +801,7 @@ fn explicit_non_forward_version_requires_confirmation() -> Result<(), Box<dyn st
         .assert()
         .failure()
         .stdout(predicate::str::contains(
-            "Target version is not greater than current version. Continue? [Y/n]",
+            "Target version is not greater than current version. Continue? [y/N]",
         ))
         .stderr(predicate::str::contains("release aborted"));
 
@@ -642,11 +810,11 @@ fn explicit_non_forward_version_requires_confirmation() -> Result<(), Box<dyn st
         .args(["--dry-run", "--version", "0.1.0"])
         .write_stdin("\n")
         .assert()
-        .success()
+        .failure()
         .stdout(predicate::str::contains(
-            "Target version is not greater than current version. Continue? [Y/n]",
+            "Target version is not greater than current version. Continue? [y/N]",
         ))
-        .stdout(predicate::str::contains("Target version: 0.1.0"));
+        .stderr(predicate::str::contains("release aborted"));
 
     Command::cargo_bin("verso")?
         .current_dir(repo.path())
@@ -709,6 +877,26 @@ fn interactive_prerelease_accepts_custom_base_version() -> Result<(), Box<dyn st
     Ok(())
 }
 
+#[test]
+fn interactive_prerelease_rejects_a_lower_custom_base_by_default(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--dry-run"])
+        .write_stdin("beta\ncustom\n0.0.9\n\n")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains(
+            "Target version is not greater than current version. Continue? [y/N]",
+        ))
+        .stderr(predicate::str::contains("release aborted"));
+
+    Ok(())
+}
+
 fn init_repo(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     git(path, &["init"])?;
     git(path, &["config", "user.email", "test@example.com"])?;
@@ -750,6 +938,13 @@ include_root = true
     write_file(&path.join("feature.md"), "feature\n")?;
     git(path, &["add", "feature.md"])?;
     git(path, &["commit", "-m", "feat: add feature (#1)"])?;
+
+    let remote = path.join(".git/release-test-remote.git");
+    let remote = remote.to_str().ok_or("non-UTF-8 path")?;
+    git(path, &["init", "--bare", remote])?;
+    git(path, &["remote", "add", "origin", remote])?;
+    git(path, &["push", "-u", "origin", "HEAD"])?;
+    fs::remove_dir_all(remote)?;
 
     Ok(())
 }

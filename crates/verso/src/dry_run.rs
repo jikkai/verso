@@ -65,7 +65,10 @@ pub fn render_dry_run_json(root: &Path, plan: &ReleasePlan) -> String {
         vec![
             "git".to_owned(),
             "push".to_owned(),
-            "--follow-tags".to_owned(),
+            "--atomic".to_owned(),
+            "<upstream-remote>".to_owned(),
+            "HEAD:<upstream-branch>".to_owned(),
+            format!("refs/tags/{0}:refs/tags/{0}", plan.tag_name),
         ],
     ];
 
@@ -171,7 +174,10 @@ pub fn render_dry_run(root: &Path, plan: &ReleasePlan) -> String {
         shell_quote(&plan.tag_name),
         shell_quote(&plan.tag_name)
     ));
-    output.push_str("git push --follow-tags\n");
+    output.push_str(&format!(
+        "git push --atomic <upstream-remote> HEAD:<upstream-branch> {}\n",
+        shell_quote(&format!("refs/tags/{0}:refs/tags/{0}", plan.tag_name))
+    ));
 
     output
 }
@@ -275,7 +281,10 @@ pub fn render_dry_run_styled(root: &Path, plan: &ReleasePlan) -> String {
         shell_quote(&plan.tag_name),
         shell_quote(&plan.tag_name)
     )));
-    output.push_str(&command_line("git push --follow-tags"));
+    output.push_str(&command_line(&format!(
+        "git push --atomic <upstream-remote> HEAD:<upstream-branch> {}",
+        shell_quote(&format!("refs/tags/{0}:refs/tags/{0}", plan.tag_name))
+    )));
 
     output
 }
@@ -474,7 +483,7 @@ mod tests {
         assert!(output.contains("Package count: 1"));
         assert!(output.contains("Warnings"));
         assert!(output.contains("working tree has generated files"));
-        assert!(output.contains("git push --follow-tags"));
+        assert!(output.contains("git push --atomic"));
         Ok(())
     }
 
@@ -495,7 +504,7 @@ mod tests {
         assert!(output.contains("Warnings"));
         assert!(output.contains("!"));
         assert!(output.contains("working tree has generated files"));
-        assert!(output.contains("$ git push --follow-tags"));
+        assert!(output.contains("$ git push --atomic"));
         Ok(())
     }
 

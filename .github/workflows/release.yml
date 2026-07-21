@@ -128,7 +128,14 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2.9.1
+
       - run: pnpm install --frozen-lockfile
+
+      - name: Verify release source
+        run: pnpm run check
 
       - uses: actions/download-artifact@v8
         with:
@@ -141,6 +148,18 @@ jobs:
           node scripts/copy-binary-to-platform-package.mts packages/verso-linux-arm64 artifacts/verso-linux-arm64/verso
           node scripts/copy-binary-to-platform-package.mts packages/verso-linux-x64 artifacts/verso-linux-x64/verso
           node scripts/copy-binary-to-platform-package.mts packages/verso-win32-x64 artifacts/verso-win32-x64/verso.exe
+
+      - name: Smoke test npm wrapper
+        run: |
+          node packages/verso/bin/verso.js --help
+          actual_version="$(node packages/verso/bin/verso.js --tool-version)"
+          expected_version="${RELEASE_TAG#v}"
+          if [ "$actual_version" != "$expected_version" ]; then
+            echo "npm wrapper version $actual_version does not match release tag $RELEASE_TAG" >&2
+            exit 1
+          fi
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
       - run: node scripts/write-platform-checksums.mts artifacts/SHA256SUMS.txt
 

@@ -159,7 +159,7 @@ pub fn default_config() -> Config {
             require_clean_worktree: true,
             commit_message: "chore(release): release v${version}".to_owned(),
             tag_name: "v${version}".to_owned(),
-            push: "follow-tags".to_owned(),
+            push: "atomic".to_owned(),
         },
         hooks: HooksConfig::default(),
         github_release: GithubReleaseConfig { enabled: false },
@@ -245,7 +245,16 @@ fn parse_config_with_label(contents: &str, label: &str) -> Result<Config, String
                 .commit_message
                 .unwrap_or_else(|| "chore(release): release v${version}".to_string()),
             tag_name: git.tag_name.unwrap_or_else(|| "v${version}".to_string()),
-            push: git.push.unwrap_or_else(|| "follow-tags".to_string()),
+            push: git.push.map_or_else(
+                || "atomic".to_string(),
+                |push| {
+                    if push == "follow-tags" {
+                        "atomic".to_string()
+                    } else {
+                        push
+                    }
+                },
+            ),
         },
         hooks: HooksConfig {
             before_version: normalize_hook(hooks.before_version),
@@ -332,8 +341,8 @@ fn validate_config(config: &Config) -> Result<(), String> {
     if config.changelog.preset != "angular" {
         return Err("only changelog preset \"angular\" is supported".to_string());
     }
-    if config.git.push != "follow-tags" {
-        return Err("only git.push = \"follow-tags\" is supported".to_string());
+    if config.git.push != "atomic" {
+        return Err("only git.push = \"atomic\" is supported".to_string());
     }
     validate_hooks(&config.hooks)?;
     if config.github_release.enabled {
@@ -467,7 +476,7 @@ mod tests {
             "chore(release): release v${version}"
         );
         assert_eq!(config.git.tag_name, "v${version}");
-        assert_eq!(config.git.push, "follow-tags");
+        assert_eq!(config.git.push, "atomic");
         assert_eq!(config.hooks, HooksConfig::default());
         assert!(!config.github_release.enabled);
 
@@ -483,6 +492,19 @@ mod tests {
         assert!(config.workspaces.ignore.is_empty());
         assert!(config.workspaces.use_gitignore);
         assert_eq!(config.version.root_package, "package.json");
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_follow_tags_push_mode_uses_atomic_push() -> Result<(), String> {
+        let config = parse_config(
+            r#"
+            [git]
+            push = "follow-tags"
+            "#,
+        )?;
+
+        assert_eq!(config.git.push, "atomic");
         Ok(())
     }
 

@@ -106,7 +106,8 @@ If it creates the commit and tag but can't push, inspect the action logs,
 confirm the commit/tag match what you want, then push them together:
 
 ```sh
-git push --follow-tags
+git push --atomic <remote> HEAD:<upstream-branch> \
+  refs/tags/<release-tag>:refs/tags/<release-tag>
 ```
 
 `Release` is safe to rerun for the same tag. Reruns refresh GitHub Release

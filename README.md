@@ -9,7 +9,7 @@
 Verso is a small release CLI for JavaScript workspaces that publish multiple
 packages at the same version. It updates package manifests, writes an
 Angular-style conventional changelog, creates a release commit and tag, and
-pushes with `git push --follow-tags`.
+atomically pushes the current upstream branch and release tag.
 
 ## Installation
 
@@ -56,7 +56,7 @@ preset = "angular"
 require_clean_worktree = true
 commit_message = "chore(release): release v${version}"
 tag_name = "v${version}"
-push = "follow-tags"
+push = "atomic"
 
 [hooks]
 # before_version = "pnpm test"
@@ -71,7 +71,8 @@ enabled = false
 Explicit `--config <PATH>` values must always point at a real file. Package
 discovery supports `package.json`, `package.json5`, `package.yaml`, and
 `package.yml`; when several manifests sit in the same directory, Verso picks
-in that order.
+in that order. The legacy `git.push = "follow-tags"` value is accepted as an
+alias for the safer atomic mode.
 
 ### All keys, most-tuned to least-tuned
 
@@ -86,17 +87,17 @@ in that order.
 | `version.cargo_manifest_paths` | `[]` | Cargo manifests whose `[package].version` is updated. The nearest `Cargo.lock` is updated when present. |
 | `changelog.infile` | `CHANGELOG.md` | Changelog file prepended during release. Forward slashes; must stay under the config directory. |
 | `changelog.preset` | `angular` | Only `angular` is supported. |
-| `git.require_clean_worktree` | `true` | Require a clean worktree before mutating files. |
+| `git.require_clean_worktree` | `true` | Require a clean worktree before mutating files. When `false`, unrelated unstaged changes are allowed, but the index, release manifests, Cargo lockfiles, and the changelog must remain clean. |
 | `git.commit_message` | `chore(release): release v${version}` | `${version}` is replaced with the target version. Must not be empty. |
 | `git.tag_name` | `v${version}` | Must contain `${version}` and render a valid Git tag. |
-| `git.push` | `follow-tags` | Only `follow-tags` is supported. |
+| `git.push` | `atomic` | Atomically push the current upstream branch and exact release tag. Only `atomic` is supported. |
 | `hooks.before_version` | None | Shell command run before release files are updated. |
 | `hooks.after_version` | None | Shell command run after release files are updated. |
 | `hooks.before_commit` | None | Shell command run before staging and committing. |
 | `hooks.after_commit` | None | Shell command run after the release commit is created. |
 | `hooks.before_tag` | None | Shell command run before the release tag is created. |
 | `hooks.after_tag` | None | Shell command run after the release tag is created. |
-| `hooks.before_push` | None | Shell command run before `git push --follow-tags`. |
+| `hooks.before_push` | None | Shell command run before the atomic branch and tag push. |
 | `hooks.after_push` | None | Shell command run after the push succeeds. |
 | `github_release.enabled` | `false` | `true` is rejected in this version. |
 
@@ -130,16 +131,17 @@ Subcommands:
 | Command | Description |
 | --- | --- |
 | `verso init` | Create a starter `verso.toml`. It auto-detects `packages/*`; use `--single`, `--workspace`, or `--force` to override behavior. |
-| `verso doctor` | Validate config parsing, package discovery, version consistency, changelog path, and Cargo manifest versions. Use `--json` for structured output. |
+| `verso doctor` | Validate config parsing, package discovery, version consistency, changelog path, Cargo manifest versions, and Git upstream readiness. Use `--json` for structured output. |
 
 Without `--version`, Verso opens an interactive menu for patch, minor, major,
-alpha, beta, rc, or custom semver. Prerelease channels then prompt for a base
-version choice, including a custom base version. Exact versions can be passed
-with `--version`, including prereleases such as `0.26.0-alpha.0`,
+alpha, beta, rc, or custom semver. When the current version is a prerelease,
+the menu also offers its stable version. Prerelease channels then prompt for a
+base version choice, including a custom base version. Exact versions can be
+passed with `--version`, including prereleases such as `0.26.0-alpha.0`,
 `0.26.0-beta.1`, and `0.26.0-rc.2`.
 
 Use `--config` to point at a different config file. Use `--yes` to skip release
-confirmation prompts, including the confirmation shown when an explicit target
+confirmation prompts, including the default-no confirmation shown when a target
 version is not greater than the current version. `--yes` does not choose a
 version for you; without `--version`, interactive version selection still runs.
 Use `-V` or `--tool-version` to print the installed Verso CLI version without
@@ -183,7 +185,7 @@ name, such as `beta` followed by `minor`.
                           |
                           v
             +----------------------------+
-            |  git push --follow-tags    |
+            |  Atomic branch + tag push  |
             +----------------------------+
 
   -- [hooks] fire between steps

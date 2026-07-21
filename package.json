@@ -33,10 +33,10 @@
     "pre-commit": "pnpm run precommit"
   },
   "devDependencies": {
-    "@types/node": "^26.0.1",
-    "oxfmt": "^0.56.0",
-    "oxlint": "^1.71.0",
+    "@types/node": "^26.1.1",
+    "oxfmt": "^0.59.0",
+    "oxlint": "^1.74.0",
     "simple-git-hooks": "^2.13.1",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }
