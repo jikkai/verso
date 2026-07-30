@@ -1,17 +1,17 @@
 {
-  "name": "@univerkit/verso-darwin-x64",
+  "name": "@amamo/verso-darwin-x64",
   "version": "1.0.0-rc.2",
-  "description": "macOS x64 binary for @univerkit/verso.",
+  "description": "macOS x64 binary for @amamo/verso.",
   "license": "MIT",
-  "author": "DreamNum Co., Ltd. <developer@univer.ai>",
-  "homepage": "https://github.com/dream-num/verso#readme",
+  "author": "白熱 <sonne@asaki.me>",
+  "homepage": "https://github.com/jikkai/verso#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dream-num/verso.git",
+    "url": "git+https://github.com/jikkai/verso.git",
     "directory": "packages/verso-darwin-x64"
   },
   "bugs": {
-    "url": "https://github.com/dream-num/verso/issues"
+    "url": "https://github.com/jikkai/verso/issues"
   },
   "os": [
     "darwin"

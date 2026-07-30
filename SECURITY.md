@@ -7,7 +7,7 @@ a public issue.
 ## Supported Versions
 
 Security fixes are shipped in the latest published version of
-`@univerkit/verso`. Pre-release builds may receive fixes when they are the
+`@amamo/verso`. Pre-release builds may receive fixes when they are the
 active release line.
 
 ## Security Scope
@@ -28,7 +28,7 @@ create one of the risks above.
 
 ## Reporting A Vulnerability
 
-Email `developer@univer.ai` with the subject prefix `[verso security]`.
+Email `白熱 <sonne@asaki.me>` with the subject prefix `[verso security]`.
 Do not open a public issue for suspected vulnerabilities.
 
 Please include:

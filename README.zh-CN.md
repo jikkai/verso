@@ -2,8 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-[![CI](https://github.com/dream-num/verso/actions/workflows/ci.yml/badge.svg)](https://github.com/dream-num/verso/actions/workflows/ci.yml)
-[![npm version](https://img.shields.io/npm/v/@univerkit/verso.svg)](https://www.npmjs.com/package/@univerkit/verso)
+[![CI](https://github.com/jikkai/verso/actions/workflows/ci.yml/badge.svg)](https://github.com/jikkai/verso/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@amamo/verso.svg)](https://www.npmjs.com/package/@amamo/verso)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Verso 是一个面向 JavaScript workspace 的轻量发布工具，适合多个包共用同一个版本号的仓库。它会更新 package manifest，生成 Angular 风格的 conventional changelog，创建 release commit 和 tag，并以原子操作推送当前上游分支和 release tag。
@@ -11,7 +11,7 @@ Verso 是一个面向 JavaScript workspace 的轻量发布工具，适合多个�
 ## 安装
 
 ```sh
-pnpm add -D @univerkit/verso
+pnpm add -D @amamo/verso
 ```
 
 在项目的 `package.json` 里增加 release script：

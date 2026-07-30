@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security report
-    url: https://github.com/dream-num/verso/security/policy
+    url: https://github.com/jikkai/verso/security/policy
     about: Please report suspected vulnerabilities privately.

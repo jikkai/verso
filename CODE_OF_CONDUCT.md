@@ -24,7 +24,7 @@ questions, or contribute changes.
 
 ## Reporting
 
-For conduct concerns, email `developer@univer.ai` with the subject prefix
+For conduct concerns, email `白熱 <sonne@asaki.me>` with the subject prefix
 `[verso conduct]`. For security issues, follow `SECURITY.md`.
 
 Maintainers may edit, hide, or close comments and issues that do not follow

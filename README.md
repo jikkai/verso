@@ -2,8 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-[![CI](https://github.com/dream-num/verso/actions/workflows/ci.yml/badge.svg)](https://github.com/dream-num/verso/actions/workflows/ci.yml)
-[![npm version](https://img.shields.io/npm/v/@univerkit/verso.svg)](https://www.npmjs.com/package/@univerkit/verso)
+[![CI](https://github.com/jikkai/verso/actions/workflows/ci.yml/badge.svg)](https://github.com/jikkai/verso/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@amamo/verso.svg)](https://www.npmjs.com/package/@amamo/verso)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Verso is a small release CLI for JavaScript workspaces that publish multiple
@@ -14,7 +14,7 @@ atomically pushes the current upstream branch and release tag.
 ## Installation
 
 ```sh
-pnpm add -D @univerkit/verso
+pnpm add -D @amamo/verso
 ```
 
 Add a release script to your package manifest:

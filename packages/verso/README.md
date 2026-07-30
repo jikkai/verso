@@ -1,6 +1,6 @@
-# @univerkit/verso
+# @amamo/verso
 
-The JavaScript wrapper for the [Verso](https://github.com/dream-num/verso)
+The JavaScript wrapper for the [Verso](https://github.com/jikkai/verso)
 release CLI. The native binary ships through an optional platform package; see
 [Supported Platforms](#supported-platforms).
 
@@ -8,16 +8,16 @@ release CLI. The native binary ships through an optional platform package; see
 
 | Platform | CPU | Package |
 | --- | --- | --- |
-| macOS | arm64 | `@univerkit/verso-darwin-arm64` |
-| macOS | x64 | `@univerkit/verso-darwin-x64` |
-| Linux | arm64 | `@univerkit/verso-linux-arm64` |
-| Linux | x64 | `@univerkit/verso-linux-x64` |
-| Windows | x64 | `@univerkit/verso-win32-x64` |
+| macOS | arm64 | `@amamo/verso-darwin-arm64` |
+| macOS | x64 | `@amamo/verso-darwin-x64` |
+| Linux | arm64 | `@amamo/verso-linux-arm64` |
+| Linux | x64 | `@amamo/verso-linux-x64` |
+| Windows | x64 | `@amamo/verso-win32-x64` |
 
 ## Installation
 
 ```sh
-pnpm add -D @univerkit/verso
+pnpm add -D @amamo/verso
 ```
 
 Add a release script:
@@ -56,14 +56,14 @@ patterns = ["packages/*"]
 
 Without `verso.toml`, Verso falls back to built-in defaults when a root
 `package.json` exists. For the full configuration reference, see the
-[repository README](https://github.com/dream-num/verso#configuration).
+[repository README](https://github.com/jikkai/verso#configuration).
 
 ## Troubleshooting
 
 `Could not find Verso platform binary` — the native optional dependency for
 your OS wasn't installed or isn't available. Check:
 
-- install `@univerkit/verso`, not a platform package directly
+- install `@amamo/verso`, not a platform package directly
 - optional dependencies are enabled in your package manager
 - your machine is one of the supported platform/CPU pairs above
 - reinstall from a fresh lockfile if the lockfile was made on a different OS
@@ -71,7 +71,7 @@ your OS wasn't installed or isn't available. Check:
 
 `Failed to launch Verso binary` — the platform package was found but the
 executable couldn't start. On macOS and Linux the wrapper repairs missing
-executable bits before spawning the binary. Upgrade `@univerkit/verso`,
+executable bits before spawning the binary. Upgrade `@amamo/verso`,
 reinstall, and include the error's cause line in bug reports if it persists.
 
 For unsupported platforms, a new native package is needed before the wrapper

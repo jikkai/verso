@@ -41,7 +41,7 @@ export function formatLaunchError(binaryPath: string, error: Error): string {
 
   if ((error as NodeJS.ErrnoException).code === "EACCES") {
     lines.push(
-      "The binary is not executable. Reinstall @univerkit/verso, then check that your package manager installs optional dependencies and preserves executable file modes.",
+      "The binary is not executable. Reinstall @amamo/verso, then check that your package manager installs optional dependencies and preserves executable file modes.",
     );
   }
 

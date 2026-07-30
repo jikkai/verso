@@ -1,17 +1,18 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+
+import type { IPlatformBinary } from "./resolve";
 import {
   ensureExecutable,
   formatLaunchError,
   isToolVersionRequest,
   normalizeCliArgs,
 } from "./launcher";
-import type { PlatformBinary } from "./resolve";
 import { resolvePlatformBinary } from "./resolve";
 
 const require = createRequire(import.meta.url);
 
-function resolveInstalledBinaryPath({ packageName, binaryName }: PlatformBinary): string {
+function resolveInstalledBinaryPath({ packageName, binaryName }: IPlatformBinary): string {
   try {
     return require.resolve(`${packageName}/bin/${binaryName}`);
   } catch (cause) {
@@ -26,7 +27,7 @@ function resolveInstalledBinaryPath({ packageName, binaryName }: PlatformBinary)
 function wrapperVersion(): string {
   const manifest = require("../package.json") as { version?: unknown };
   if (typeof manifest.version !== "string") {
-    throw new Error("Could not read @univerkit/verso package version.");
+    throw new Error("Could not read @amamo/verso package version.");
   }
 
   return manifest.version;

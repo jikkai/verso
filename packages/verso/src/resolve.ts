@@ -1,19 +1,19 @@
-export interface PlatformBinary {
+export interface IPlatformBinary {
   packageName: string;
   binaryName: string;
 }
 
 const supportedPackages = {
   darwin: {
-    arm64: "@univerkit/verso-darwin-arm64",
-    x64: "@univerkit/verso-darwin-x64",
+    arm64: "@amamo/verso-darwin-arm64",
+    x64: "@amamo/verso-darwin-x64",
   },
   linux: {
-    arm64: "@univerkit/verso-linux-arm64",
-    x64: "@univerkit/verso-linux-x64",
+    arm64: "@amamo/verso-linux-arm64",
+    x64: "@amamo/verso-linux-x64",
   },
   win32: {
-    x64: "@univerkit/verso-win32-x64",
+    x64: "@amamo/verso-win32-x64",
   },
 } as const;
 
@@ -45,7 +45,7 @@ export function binaryName(platform: string): string {
 export function resolvePlatformBinary(
   platform: string = process.platform,
   arch: string = process.arch,
-): PlatformBinary {
+): IPlatformBinary {
   return {
     packageName: packageForPlatform(platform, arch),
     binaryName: binaryName(platform),

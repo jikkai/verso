@@ -55,8 +55,8 @@ function releaseNotesForTag(changelog: string, tag: string): string {
     "",
     "```sh",
     "gh attestation verify ./verso-linux-x64/verso \\",
-    "  --repo dream-num/verso \\",
-    "  --signer-workflow dream-num/verso/.github/workflows/release.yml",
+    "  --repo jikkai/verso \\",
+    "  --signer-workflow jikkai/verso/.github/workflows/release.yml",
     "```",
     "",
   ].join("\n");

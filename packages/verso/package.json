@@ -1,17 +1,17 @@
 {
-  "name": "@univerkit/verso",
+  "name": "@amamo/verso",
   "version": "1.0.0-rc.2",
   "description": "A focused release CLI for JavaScript workspace packages.",
   "license": "MIT",
-  "author": "DreamNum Co., Ltd. <developer@univer.ai>",
-  "homepage": "https://github.com/dream-num/verso#readme",
+  "author": "白熱 <sonne@asaki.me>",
+  "homepage": "https://github.com/jikkai/verso#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dream-num/verso.git",
+    "url": "git+https://github.com/jikkai/verso.git",
     "directory": "packages/verso"
   },
   "bugs": {
-    "url": "https://github.com/dream-num/verso/issues"
+    "url": "https://github.com/jikkai/verso/issues"
   },
   "engines": {
     "node": ">=22.18.0"
@@ -46,14 +46,14 @@
     "test": "pnpm run build"
   },
   "optionalDependencies": {
-    "@univerkit/verso-darwin-arm64": "workspace:*",
-    "@univerkit/verso-darwin-x64": "workspace:*",
-    "@univerkit/verso-linux-arm64": "workspace:*",
-    "@univerkit/verso-linux-x64": "workspace:*",
-    "@univerkit/verso-win32-x64": "workspace:*"
+    "@amamo/verso-darwin-arm64": "workspace:*",
+    "@amamo/verso-darwin-x64": "workspace:*",
+    "@amamo/verso-linux-arm64": "workspace:*",
+    "@amamo/verso-linux-x64": "workspace:*",
+    "@amamo/verso-win32-x64": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.1.2",
     "typescript": "^7.0.2"
   }
 }

@@ -1,6 +1,7 @@
+import type { ServerPlugin } from "fumapress";
 import { zhCN } from "@fumapress/language/zh-cn";
 import { defineI18n } from "fumadocs-core/i18n";
-import { defineConfig, type ServerPlugin } from "fumapress";
+import { defineConfig } from "fumapress";
 import { fumadocsMdx } from "fumapress/adapters/mdx";
 import { flexsearchPlugin } from "fumapress/plugins/flexsearch";
 import { notFound } from "fumapress/router";
@@ -30,7 +31,7 @@ const config = defineConfig({
     name: "Verso",
     baseUrl: process.env.DOCS_SITE_URL ?? "http://localhost:3000",
     git: {
-      user: "dream-num",
+      user: "jikkai",
       repo: "verso",
       branch: "main",
       rootDir: "apps/docs",
@@ -83,11 +84,11 @@ export default config
   .layouts({
     defaultProps({ lang }) {
       return {
-        githubUrl: "https://github.com/dream-num/verso",
+        githubUrl: "https://github.com/jikkai/verso",
         links: [
           {
             text: lang === "zh" ? "npm 软件包" : "npm package",
-            url: "https://www.npmjs.com/package/@univerkit/verso",
+            url: "https://www.npmjs.com/package/@amamo/verso",
             external: true,
           },
         ],

@@ -751,7 +751,7 @@ mod tests {
     }
 
     #[test]
-    fn discovers_minimal_univer_pro_workspace_shape() -> Result<(), String> {
+    fn discovers_packages_across_multiple_workspace_roots() -> Result<(), String> {
         let temp = TempDir::new().map_err(|error| error.to_string())?;
         write_package(&temp.path().join("apps/docs"), "docs", "1.2.3")?;
         write_package(&temp.path().join("bundle/core"), "core-bundle", "1.2.3")?;

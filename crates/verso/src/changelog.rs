@@ -330,12 +330,12 @@ mod tests {
             Some("v0.24.0"),
             "v0.25.0",
             &commits,
-            Some("dream-num/univer-pro"),
+            Some("jikkai/verso"),
         );
 
         assert!(
             Regex::new(
-                r"(?m)^## \[0\.25\.0\]\(https://github\.com/dream-num/univer-pro/compare/v0\.24\.0\.\.\.v0\.25\.0\) \([0-9]{4}-[0-9]{2}-[0-9]{2}\)$"
+                r"(?m)^## \[0\.25\.0\]\(https://github\.com/jikkai/verso/compare/v0\.24\.0\.\.\.v0\.25\.0\) \([0-9]{4}-[0-9]{2}-[0-9]{2}\)$"
             )
             .expect("date heading regex should compile")
             .is_match(&rendered)
@@ -347,7 +347,7 @@ mod tests {
             .find("### Features")
             .expect("Features heading should render");
         assert!(bug_fixes_index < features_index);
-        assert!(rendered.contains("* **parser:** handle nested scopes ([#42](https://github.com/dream-num/univer-pro/issues/42)) ([abc1234](https://github.com/dream-num/univer-pro/commit/abc1234))"));
+        assert!(rendered.contains("* **parser:** handle nested scopes ([#42](https://github.com/jikkai/verso/issues/42)) ([abc1234](https://github.com/jikkai/verso/commit/abc1234))"));
     }
 
     #[test]

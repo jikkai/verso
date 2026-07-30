@@ -88,7 +88,7 @@ Publishing is driven by GitHub Actions:
 2. `Release` — the pushed `v*` tag triggers binary builds and npm publish.
 
 The repository needs `GH_TOKEN` (repo contents read/write) and `NPM_TOKEN`
-(publish access for the `@univerkit` scope). Trusted publishing is a planned
+(publish access for the `@amamo` scope). Trusted publishing is a planned
 migration; keep `NPM_TOKEN` configured until that path is verified.
 
 Stable versions publish with the `latest` dist-tag; `alpha`/`beta`/`rc`
@@ -125,6 +125,6 @@ Then verify the binary provenance with GitHub Artifact Attestations:
 
 ```sh
 gh attestation verify ./verso-linux-x64/verso \
-  --repo dream-num/verso \
-  --signer-workflow dream-num/verso/.github/workflows/release.yml
+  --repo jikkai/verso \
+  --signer-workflow jikkai/verso/.github/workflows/release.yml
 ```
