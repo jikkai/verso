@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.0.0-rc.3](https://github.com/jikkai/verso/compare/v1.0.0-rc.2...v1.0.0-rc.3) (2026-07-30)
+
+### Bug Fixes
+
+* **release:** scope Cargo.lock updates to nearest manifest ([6d670d6](https://github.com/jikkai/verso/commit/6d670d68c2efb347a59bd51acbd7141892e239e0))
+
+### Other Changes (build)
+
+* **deps:** bump actions/setup-node from 6 to 7 in the github-actions group across 1 directory ([fb441b1](https://github.com/jikkai/verso/commit/fb441b1e5a1b96ed289f2b2c5f699dec9da8be95))
+
+### Other Changes (chore)
+
+* transfer repository to jikkai/verso and migrate npm scope to @amamo ([418dfe3](https://github.com/jikkai/verso/commit/418dfe3a49552ed29e892ffe8e4316522d33cc40))
+
+### Other Changes (ci)
+
+* **release:** use github.token for checkout ([15d0bb9](https://github.com/jikkai/verso/commit/15d0bb943c692b13bb14413ef8bf737f7a4cc0dd))
+* add GH_REPO environment variable for docs workflow ([0d0a6e0](https://github.com/jikkai/verso/commit/0d0a6e0565d9dc5b25044131da7923640a45ca7b))
+
+### Other Changes (docs)
+
+* serve English documentation from root path ([e807b63](https://github.com/jikkai/verso/commit/e807b63578aa6448d0c6950fad1c9a2d6e09123d))
+
 ## [1.0.0-rc.2](https://github.com/jikkai/verso/compare/v1.0.0-rc.1...v1.0.0-rc.2) (2026-07-21)
 
 ### Features

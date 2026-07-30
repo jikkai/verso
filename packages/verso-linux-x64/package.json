@@ -1,6 +1,6 @@
 {
   "name": "@amamo/verso-linux-x64",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "description": "Linux x64 binary for @amamo/verso.",
   "license": "MIT",
   "author": "白熱 <sonne@asaki.me>",
