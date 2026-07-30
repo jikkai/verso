@@ -217,6 +217,125 @@ fn release_updates_versions_changelog_commit_and_tag_before_push(
 }
 
 #[test]
+fn release_updates_each_cargo_package_in_its_nearest_lockfile(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    write_file(
+        &repo.path().join("verso.toml"),
+        r#"
+[version]
+cargo_manifest_paths = ["crates/a/Cargo.toml", "crates/b/Cargo.toml"]
+
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+"#,
+    )?;
+    for name in ["a", "b"] {
+        write_file(
+            &repo.path().join(format!("crates/{name}/Cargo.toml")),
+            &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n"),
+        )?;
+        write_file(
+            &repo.path().join(format!("crates/{name}/Cargo.lock")),
+            &format!("version = 4\n\n[[package]]\nname = \"{name}\"\nversion = \"0.1.0\"\n"),
+        )?;
+    }
+    git(repo.path(), &["add", "."])?;
+    git(
+        repo.path(),
+        &["commit", "-m", "test: add independent Cargo lockfiles"],
+    )?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Local release commit and tag were created",
+        ));
+
+    for name in ["a", "b"] {
+        assert!(
+            fs::read_to_string(repo.path().join(format!("crates/{name}/Cargo.lock")))?
+                .contains("version = \"0.2.0\"")
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn dry_run_omits_changelog_when_disabled() -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    write_file(
+        &repo.path().join("verso.toml"),
+        r#"
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+
+[changelog]
+enabled = false
+"#,
+    )?;
+    git(repo.path(), &["add", "verso.toml"])?;
+    git(repo.path(), &["commit", "-m", "test: disable changelog"])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--dry-run", "--json", "--version", "0.2.0", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"changelogFile\": null"))
+        .stdout(predicate::str::contains("CHANGELOG.md").not());
+
+    Ok(())
+}
+
+#[test]
+fn release_leaves_changelog_unchanged_when_disabled() -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    write_file(
+        &repo.path().join("verso.toml"),
+        r#"
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+
+[changelog]
+enabled = false
+"#,
+    )?;
+    git(repo.path(), &["add", "verso.toml"])?;
+    git(repo.path(), &["commit", "-m", "test: disable changelog"])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Local release commit and tag were created",
+        ));
+
+    assert_eq!(
+        fs::read_to_string(repo.path().join("CHANGELOG.md"))?,
+        "# Changelog\n"
+    );
+    assert!(
+        !git_stdout(repo.path(), &["show", "--format=", "--name-only", "HEAD"])?
+            .contains("CHANGELOG.md")
+    );
+
+    Ok(())
+}
+
+#[test]
 fn release_runs_hooks_in_order_before_push_failure() -> Result<(), Box<dyn std::error::Error>> {
     let repo = TempDir::new()?;
     write_release_fixture(repo.path())?;
@@ -901,6 +1020,8 @@ fn init_repo(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     git(path, &["init"])?;
     git(path, &["config", "user.email", "test@example.com"])?;
     git(path, &["config", "user.name", "Test User"])?;
+    git(path, &["config", "commit.gpgSign", "false"])?;
+    git(path, &["config", "tag.gpgSign", "false"])?;
     Ok(())
 }
 

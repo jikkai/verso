@@ -215,6 +215,8 @@ mod tests {
     fn init_repo() -> Result<TempDir, String> {
         let repo = TempDir::new().map_err(|error| error.to_string())?;
         git(repo.path(), &["init"])?;
+        git(repo.path(), &["config", "commit.gpgSign", "false"])?;
+        git(repo.path(), &["config", "tag.gpgSign", "false"])?;
         Ok(repo)
     }
 

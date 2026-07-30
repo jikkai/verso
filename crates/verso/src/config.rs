@@ -32,6 +32,7 @@ pub struct WorkspaceConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangelogConfig {
+    pub enabled: bool,
     pub infile: String,
     pub preset: String,
 }
@@ -92,6 +93,7 @@ struct RawWorkspaceConfig {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawChangelogConfig {
+    enabled: Option<bool>,
     infile: Option<String>,
     preset: Option<String>,
 }
@@ -152,6 +154,7 @@ pub fn default_config() -> Config {
             use_gitignore: true,
         },
         changelog: ChangelogConfig {
+            enabled: true,
             infile: "CHANGELOG.md".to_owned(),
             preset: "angular".to_owned(),
         },
@@ -180,6 +183,7 @@ fn parse_config_with_label(contents: &str, label: &str) -> Result<Config, String
         cargo_manifest_paths: None,
     });
     let changelog = raw.changelog.unwrap_or(RawChangelogConfig {
+        enabled: None,
         infile: None,
         preset: None,
     });
@@ -234,6 +238,7 @@ fn parse_config_with_label(contents: &str, label: &str) -> Result<Config, String
                 .unwrap_or(true),
         },
         changelog: ChangelogConfig {
+            enabled: changelog.enabled.unwrap_or(true),
             infile: changelog
                 .infile
                 .unwrap_or_else(|| "CHANGELOG.md".to_string()),
@@ -468,6 +473,7 @@ mod tests {
         assert!(config.workspaces.include_root);
         assert!(config.workspaces.ignore.is_empty());
         assert!(config.workspaces.use_gitignore);
+        assert!(config.changelog.enabled);
         assert_eq!(config.changelog.infile, "CHANGELOG.md");
         assert_eq!(config.changelog.preset, "angular");
         assert!(config.git.require_clean_worktree);

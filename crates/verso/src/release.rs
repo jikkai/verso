@@ -39,7 +39,10 @@ pub fn run(cli: Cli) -> Result<(), String> {
         resolve_target_version(cli.target_version.as_deref(), &current_version, cli.yes)?;
     let tag_name = render_template(&config.git.tag_name, &target_version.to_string());
     let commit_message = render_template(&config.git.commit_message, &target_version.to_string());
-    let changelog_file = root.join(&config.changelog.infile);
+    let changelog_file = config
+        .changelog
+        .enabled
+        .then(|| root.join(&config.changelog.infile));
     let package_files = packages
         .iter()
         .map(|package| package.package_json.clone())
@@ -86,7 +89,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
         let release_paths = package_files
             .iter()
             .chain(extra_version_files.iter())
-            .chain(std::iter::once(&changelog_file))
+            .chain(changelog_file.iter())
             .cloned()
             .collect::<Vec<_>>();
         let release_paths = relative_path_strings(&root, &release_paths);
@@ -98,17 +101,21 @@ pub fn run(cli: Cli) -> Result<(), String> {
         return Err(existing_tag_error(&tag_name));
     }
 
-    let previous_tag = previous_tag(&root, &config.git.tag_name)?;
-    let commits = changelog::commits_since(&root, previous_tag.as_deref())?;
-    let repo_slug =
-        git::remote_origin_url(&root).and_then(|remote| changelog::infer_github_slug(&remote));
-    let changelog_entry = render_changelog_entry(
-        &target_version.to_string(),
-        previous_tag.as_deref(),
-        &tag_name,
-        &commits,
-        repo_slug.as_deref(),
-    );
+    let changelog_entry = if changelog_file.is_some() {
+        let previous_tag = previous_tag(&root, &config.git.tag_name)?;
+        let commits = changelog::commits_since(&root, previous_tag.as_deref())?;
+        let repo_slug =
+            git::remote_origin_url(&root).and_then(|remote| changelog::infer_github_slug(&remote));
+        Some(render_changelog_entry(
+            &target_version.to_string(),
+            previous_tag.as_deref(),
+            &tag_name,
+            &commits,
+            repo_slug.as_deref(),
+        ))
+    } else {
+        None
+    };
 
     let before_head = git::current_head(&root)?;
     confirm_release_step(
@@ -117,12 +124,13 @@ pub fn run(cli: Cli) -> Result<(), String> {
     )?;
     run_hook(&root, "before_version", &config.hooks.before_version)?;
     let release_files = write_release_files(
+        &root,
         &packages,
         &cargo_manifest_files,
         &cargo_lock_files,
-        &changelog_file,
+        changelog_file.as_deref(),
         &target_version,
-        &changelog_entry,
+        changelog_entry.as_deref(),
     )?;
     if let Err(error) = run_hook(&root, "after_version", &config.hooks.after_version) {
         return Err(rollback_add_failure(&root, &release_files, error));
@@ -787,12 +795,13 @@ struct ReleaseFileChanges {
 }
 
 fn write_release_files(
+    root: &Path,
     packages: &[PackageFile],
     cargo_manifest_files: &[PathBuf],
     cargo_lock_files: &[PathBuf],
-    changelog_file: &Path,
+    changelog_file: Option<&Path>,
     target_version: &Version,
-    changelog_entry: &str,
+    changelog_entry: Option<&str>,
 ) -> Result<ReleaseFileChanges, String> {
     let mut paths = packages
         .iter()
@@ -800,7 +809,7 @@ fn write_release_files(
         .collect::<Vec<_>>();
     paths.extend(cargo_manifest_files.iter().cloned());
     paths.extend(cargo_lock_files.iter().cloned());
-    paths.push(changelog_file.to_path_buf());
+    paths.extend(changelog_file.map(Path::to_path_buf));
 
     let mut changes = ChangeSet::snapshot(&paths)?;
     let result = (|| {
@@ -833,7 +842,8 @@ fn write_release_files(
             if updated != contents {
                 changes.write(manifest_path, updated.as_bytes())?;
                 changed_paths.push(manifest_path.clone());
-                cargo_package_updates.push(package);
+                cargo_package_updates
+                    .push((package, cargo_lock_file_for_manifest(root, manifest_path)));
             }
         }
 
@@ -841,7 +851,10 @@ fn write_release_files(
             let contents = fs::read_to_string(lock_path)
                 .map_err(|error| format!("failed to read {}: {error}", lock_path.display()))?;
             let mut updated = contents.clone();
-            for package in &cargo_package_updates {
+            for (package, package_lock_path) in &cargo_package_updates {
+                if package_lock_path.as_ref() != Some(lock_path) {
+                    continue;
+                }
                 updated = cargo_manifest::replace_lock_package_version_preserving_style(
                     lock_path,
                     &updated,
@@ -856,11 +869,13 @@ fn write_release_files(
             }
         }
 
-        let existing_changelog = read_changelog(changelog_file)?;
-        let changelog = insert_changelog_entry(&existing_changelog, changelog_entry);
-        if changelog != existing_changelog {
-            changes.write(changelog_file, changelog.as_bytes())?;
-            changed_paths.push(changelog_file.to_path_buf());
+        if let (Some(changelog_file), Some(changelog_entry)) = (changelog_file, changelog_entry) {
+            let existing_changelog = read_changelog(changelog_file)?;
+            let changelog = insert_changelog_entry(&existing_changelog, changelog_entry);
+            if changelog != existing_changelog {
+                changes.write(changelog_file, changelog.as_bytes())?;
+                changed_paths.push(changelog_file.to_path_buf());
+            }
         }
 
         Ok(changed_paths)
@@ -1110,12 +1125,13 @@ mod tests {
         fs::write(&changelog, "# Changelog\n").map_err(|error| error.to_string())?;
 
         let changed = write_release_files(
+            temp.path(),
             &[root_package.clone(), workspace_package.clone()],
             &[],
             &[],
-            &changelog,
+            Some(&changelog),
             &Version::parse("0.2.0").expect("test semver should parse"),
-            "# 0.2.0 (2026-06-24)\n\nNo classifiable changes.\n",
+            Some("# 0.2.0 (2026-06-24)\n\nNo classifiable changes.\n"),
         )?;
 
         assert_eq!(
@@ -1175,6 +1191,8 @@ mod tests {
         git::git(repo.path(), &["init"])?;
         git::git(repo.path(), &["config", "user.email", "test@example.com"])?;
         git::git(repo.path(), &["config", "user.name", "Test User"])?;
+        git::git(repo.path(), &["config", "commit.gpgSign", "false"])?;
+        git::git(repo.path(), &["config", "tag.gpgSign", "false"])?;
         Ok(repo)
     }
 

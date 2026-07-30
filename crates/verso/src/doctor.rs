@@ -157,23 +157,27 @@ pub fn check(config_path: &Path, allow_missing_default_config: bool) -> DoctorRe
         Err(error) => checks.push(fail("current version", error)),
     }
 
-    let changelog = root.join(&config.changelog.infile);
-    let changelog_parent_ok = changelog
-        .parent()
-        .is_some_and(|parent| parent.exists() && parent.is_dir());
-    if changelog_parent_ok {
-        checks.push(pass(
-            "changelog",
-            format!("{} can be written", changelog.display()),
-        ));
+    if config.changelog.enabled {
+        let changelog = root.join(&config.changelog.infile);
+        let changelog_parent_ok = changelog
+            .parent()
+            .is_some_and(|parent| parent.exists() && parent.is_dir());
+        if changelog_parent_ok {
+            checks.push(pass(
+                "changelog",
+                format!("{} can be written", changelog.display()),
+            ));
+        } else {
+            checks.push(fail(
+                "changelog",
+                format!(
+                    "parent directory for {} does not exist",
+                    changelog.display()
+                ),
+            ));
+        }
     } else {
-        checks.push(fail(
-            "changelog",
-            format!(
-                "parent directory for {} does not exist",
-                changelog.display()
-            ),
-        ));
+        checks.push(pass("changelog", "disabled"));
     }
 
     match git::release_upstream(&root) {

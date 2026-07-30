@@ -806,6 +806,7 @@ mod tests {
                 use_gitignore: true,
             },
             changelog: ChangelogConfig {
+                enabled: true,
                 infile: "CHANGELOG.md".to_owned(),
                 preset: "angular".to_owned(),
             },

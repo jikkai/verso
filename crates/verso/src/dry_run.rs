@@ -12,7 +12,7 @@ pub struct ReleasePlan {
     pub target_version: Version,
     pub package_files: Vec<PathBuf>,
     pub extra_version_files: Vec<PathBuf>,
-    pub changelog_file: PathBuf,
+    pub changelog_file: Option<PathBuf>,
     pub commit_message: String,
     pub tag_name: String,
     pub hooks: Vec<PlannedHook>,
@@ -36,7 +36,9 @@ pub fn render_dry_run_json(root: &Path, plan: &ReleasePlan) -> String {
             .collect::<Vec<_>>(),
     );
     let mut git_add_files = version_files.clone();
-    git_add_files.push(plan.changelog_file.clone());
+    if let Some(changelog_file) = &plan.changelog_file {
+        git_add_files.push(changelog_file.clone());
+    }
     git_add_files.sort();
     git_add_files.dedup();
 
@@ -98,7 +100,7 @@ pub fn render_dry_run_json(root: &Path, plan: &ReleasePlan) -> String {
             .iter()
             .map(|file| relative_string(root, file))
             .collect::<Vec<_>>(),
-        "changelogFile": relative_string(root, &plan.changelog_file),
+        "changelogFile": plan.changelog_file.as_ref().map(|file| relative_string(root, file)),
         "commitMessage": plan.commit_message,
         "tagName": plan.tag_name,
         "hooks": hooks,
@@ -141,10 +143,12 @@ pub fn render_dry_run(root: &Path, plan: &ReleasePlan) -> String {
     output.push_str("\nVersion updates:\n");
     output.push_str(&render_tree(root, &version_files));
 
-    output.push_str(&format!(
-        "\nChangelog: {}\n",
-        relative_string(root, &plan.changelog_file)
-    ));
+    if let Some(changelog_file) = &plan.changelog_file {
+        output.push_str(&format!(
+            "\nChangelog: {}\n",
+            relative_string(root, changelog_file)
+        ));
+    }
 
     if !plan.hooks.is_empty() {
         output.push_str("\nPlanned hooks:\n");
@@ -154,7 +158,9 @@ pub fn render_dry_run(root: &Path, plan: &ReleasePlan) -> String {
     }
 
     let mut git_add_files = version_files;
-    git_add_files.push(plan.changelog_file.clone());
+    if let Some(changelog_file) = &plan.changelog_file {
+        git_add_files.push(changelog_file.clone());
+    }
     git_add_files.sort();
     git_add_files.dedup();
     let git_add_args = git_add_files
@@ -240,12 +246,11 @@ pub fn render_dry_run_styled(root: &Path, plan: &ReleasePlan) -> String {
     output.push_str(&section_title("Version updates"));
     output.push_str(&render_tree(root, &version_files));
 
-    output.push('\n');
-    output.push_str(&section_title("Changelog"));
-    output.push_str(&format!(
-        "{}\n",
-        relative_string(root, &plan.changelog_file)
-    ));
+    if let Some(changelog_file) = &plan.changelog_file {
+        output.push('\n');
+        output.push_str(&section_title("Changelog"));
+        output.push_str(&format!("{}\n", relative_string(root, changelog_file)));
+    }
 
     if !plan.hooks.is_empty() {
         output.push('\n');
@@ -260,7 +265,9 @@ pub fn render_dry_run_styled(root: &Path, plan: &ReleasePlan) -> String {
     }
 
     let mut git_add_files = version_files;
-    git_add_files.push(plan.changelog_file.clone());
+    if let Some(changelog_file) = &plan.changelog_file {
+        git_add_files.push(changelog_file.clone());
+    }
     git_add_files.sort();
     git_add_files.dedup();
     let git_add_args = git_add_files
@@ -664,7 +671,7 @@ mod tests {
             target_version: Version::parse("1.3.0").map_err(|error| error.to_string())?,
             package_files,
             extra_version_files: Vec::new(),
-            changelog_file: root.join("docs/CHANGELOG.md"),
+            changelog_file: Some(root.join("docs/CHANGELOG.md")),
             commit_message: "chore(release): release v1.3.0".to_owned(),
             tag_name: "v1.3.0".to_owned(),
             hooks: Vec::new(),

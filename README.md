@@ -49,6 +49,7 @@ ignore = []
 use_gitignore = true
 
 [changelog]
+enabled = true
 infile = "CHANGELOG.md"
 preset = "angular"
 
@@ -85,6 +86,7 @@ alias for the safer atomic mode.
 | `version.root_package` | `package.json` | Manifest read for the current version and root update. Forward slashes; must stay under the config directory. If omitted and `package.json` is absent, Verso tries `package.json5`, `package.yaml`, then `package.yml`. |
 | `version.require_consistent_versions` | `true` | Fail when discovered packages or configured Cargo manifests don't share one version. |
 | `version.cargo_manifest_paths` | `[]` | Cargo manifests whose `[package].version` is updated. The nearest `Cargo.lock` is updated when present. |
+| `changelog.enabled` | `true` | Set to `false` to leave the changelog untouched during releases. |
 | `changelog.infile` | `CHANGELOG.md` | Changelog file prepended during release. Forward slashes; must stay under the config directory. |
 | `changelog.preset` | `angular` | Only `angular` is supported. |
 | `git.require_clean_worktree` | `true` | Require a clean worktree before mutating files. When `false`, unrelated unstaged changes are allowed, but the index, release manifests, Cargo lockfiles, and the changelog must remain clean. |

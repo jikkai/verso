@@ -21,6 +21,7 @@ ignore = []
 use_gitignore = true
 
 [changelog]
+enabled = true
 infile = "CHANGELOG.md"
 preset = "angular"
 
@@ -74,7 +75,8 @@ cargo_manifest_paths = ["crates/cli/Cargo.toml"]
 
 ## Changelog 和 Git
 
-目前只支持 Angular changelog preset。默认 release commit 和 tag 为：
+设置 `changelog.enabled = false` 后，发布过程不会修改 changelog。目前只支持 Angular
+changelog preset。默认 release commit 和 tag 为：
 
 ```toml
 [git]
