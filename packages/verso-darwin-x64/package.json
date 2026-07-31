@@ -1,6 +1,6 @@
 {
   "name": "@amamo/verso-darwin-x64",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "description": "macOS x64 binary for @amamo/verso.",
   "license": "MIT",
   "author": "白熱 <sonne@asaki.me>",

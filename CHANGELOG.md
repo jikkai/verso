@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.0-rc.4](https://github.com/jikkai/verso/compare/v1.0.0-rc.3...v1.0.0-rc.4) (2026-07-31)
+
+### Bug Fixes
+
+* **workspace:** respect ignored workspace roots ([cb111cd](https://github.com/jikkai/verso/commit/cb111cd3d3fdab8f29d12f4b3a09fff7ed6c9bc5))
+
+### Features
+
+* **cli:** improve diagnostic output ([199c503](https://github.com/jikkai/verso/commit/199c50342b1fdc9d629c4f23a4ef0b1a6100811e))
+
+### Other Changes (ci)
+
+* **release:** use GH_TOKEN for checkout ([6f9a2dc](https://github.com/jikkai/verso/commit/6f9a2dccb1eb8d0683b5a5d790b2b20f070031ad))
+
 ## [1.0.0-rc.3](https://github.com/jikkai/verso/compare/v1.0.0-rc.2...v1.0.0-rc.3) (2026-07-30)
 
 ### Bug Fixes
