@@ -24,6 +24,12 @@ pub fn discover_packages(root: &Path, config: &Config) -> Result<Vec<PackageFile
     let root_package = resolve_root_package_manifest(root, config);
     let workspace_pattern_values = effective_workspace_patterns(root, config)?;
     let workspace_patterns = WorkspacePatterns::new(&workspace_pattern_values)?;
+    let workspace_ignores = WorkspaceIgnores::new(&config.workspaces.ignore)?;
+    let workspace_search_roots = workspace_search_roots(root, &workspace_pattern_values);
+    let all_workspace_search_roots_ignored = !workspace_search_roots.is_empty()
+        && workspace_search_roots
+            .iter()
+            .all(|search_root| workspace_ignores.is_match(root, search_root));
 
     if config.workspaces.include_root {
         if let Some(root_package) = &root_package {
@@ -31,7 +37,10 @@ pub fn discover_packages(root: &Path, config: &Config) -> Result<Vec<PackageFile
         }
     }
 
-    for search_root in workspace_search_roots(root, &workspace_pattern_values) {
+    for search_root in workspace_search_roots {
+        if workspace_ignores.is_match(root, &search_root) {
+            continue;
+        }
         for dir in collect_dirs(root, &search_root, &config.workspaces)? {
             if !workspace_patterns.is_match(root, &dir) {
                 continue;
@@ -69,7 +78,10 @@ pub fn discover_packages(root: &Path, config: &Config) -> Result<Vec<PackageFile
         ));
     }
 
-    if !workspace_pattern_values.is_empty() && !matched_workspace_package {
+    if !workspace_pattern_values.is_empty()
+        && !matched_workspace_package
+        && !all_workspace_search_roots_ignored
+    {
         return Err(format!(
             "no workspace package manifests matched configured workspaces under {}",
             root.display()
@@ -675,6 +687,20 @@ mod tests {
         let packages = discover_packages(temp.path(), &config)?;
 
         assert_package_dirs(&packages, &[&temp.path().join("packages/a")]);
+        Ok(())
+    }
+
+    #[test]
+    fn workspace_discovery_can_ignore_exact_search_root() -> Result<(), String> {
+        let temp = TempDir::new().map_err(|error| error.to_string())?;
+        write_package(temp.path(), "root", "1.2.3")?;
+        write_package(&temp.path().join("docs"), "docs", "9.9.9")?;
+        let mut config = test_config(vec!["docs"], true);
+        config.workspaces.ignore = vec!["docs".to_owned()];
+
+        let packages = discover_packages(temp.path(), &config)?;
+
+        assert_package_dirs(&packages, &[temp.path()]);
         Ok(())
     }
 
