@@ -64,9 +64,9 @@ try {
   main();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
+  console.error(`error: ${message}`);
   if (error instanceof Error && error.cause instanceof Error) {
-    console.error(error.cause.message);
+    console.error(`note: ${error.cause.message}`);
   }
   process.exit(1);
 }

@@ -4,7 +4,7 @@ use std::path::Path;
 pub fn run(config_path: &Path, args: &InitArgs) -> Result<(), String> {
     if config_path.exists() && !args.force {
         return Err(format!(
-            "{} already exists; rerun with --force to overwrite it",
+            "{} already exists\n\nhelp: rerun with --force to overwrite it",
             config_path.display()
         ));
     }

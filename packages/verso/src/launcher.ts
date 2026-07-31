@@ -36,12 +36,13 @@ export function formatLaunchError(binaryPath: string, error: Error): string {
   const lines = [`Failed to launch Verso binary at ${binaryPath}.`];
   const reason = error.message.trim();
   if (reason.length > 0) {
-    lines.push(`Reason: ${reason}`);
+    lines.push(`note: ${reason}`);
   }
 
   if ((error as NodeJS.ErrnoException).code === "EACCES") {
     lines.push(
-      "The binary is not executable. Reinstall @amamo/verso, then check that your package manager installs optional dependencies and preserves executable file modes.",
+      "",
+      "help: reinstall @amamo/verso, then check that the package manager installs optional dependencies and preserves executable file modes.",
     );
   }
 

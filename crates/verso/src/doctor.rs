@@ -1,5 +1,6 @@
 use crate::{
     config::{self, Config},
+    diagnostic::{render_check, stdout_supports_color},
     git,
     release::{current_version, release_root, verify_cargo_manifest_versions},
     workspace::{
@@ -196,6 +197,19 @@ pub fn run(
     allow_missing_default_config: bool,
     json: bool,
 ) -> Result<(), String> {
+    if run_with_status(config_path, allow_missing_default_config, json)? {
+        Ok(())
+    } else {
+        Err("doctor found release readiness problems".to_string())
+    }
+}
+
+#[doc(hidden)]
+pub fn run_with_status(
+    config_path: &Path,
+    allow_missing_default_config: bool,
+    json: bool,
+) -> Result<bool, String> {
     let report = check(config_path, allow_missing_default_config);
     if json {
         println!(
@@ -204,14 +218,10 @@ pub fn run(
                 .map_err(|error| format!("failed to serialize doctor report: {error}"))?
         );
     } else {
-        println!("{}", render_text_report(&report));
+        println!("{}", render_text_report(&report, stdout_supports_color()));
     }
 
-    if report.ok {
-        Ok(())
-    } else {
-        Err("doctor found release readiness problems".to_string())
-    }
+    Ok(report.ok)
 }
 
 fn load_project_config(
@@ -235,14 +245,15 @@ fn load_project_config(
         .map(|config| (config, ConfigSource::File(config_path.to_path_buf())))
 }
 
-fn render_text_report(report: &DoctorReport) -> String {
+fn render_text_report(report: &DoctorReport, styled: bool) -> String {
     let mut output = String::from("Verso doctor\n\n");
     for check in &report.checks {
-        let marker = match check.status {
-            DoctorStatus::Pass => "PASS",
-            DoctorStatus::Fail => "FAIL",
-        };
-        output.push_str(&format!("{marker} {}: {}\n", check.name, check.message));
+        output.push_str(&render_check(
+            check.status == DoctorStatus::Pass,
+            &check.name,
+            &check.message,
+            styled,
+        ));
     }
     output
 }
@@ -375,6 +386,38 @@ mod tests {
             .checks
             .iter()
             .any(|check| check.name == "git upstream" && check.status == DoctorStatus::Fail));
+        Ok(())
+    }
+
+    #[test]
+    fn doctor_text_distinguishes_pass_and_fail_checks() {
+        let report = DoctorReport {
+            ok: false,
+            checks: vec![
+                pass("config", "loaded verso.toml"),
+                fail("packages", "missing version"),
+            ],
+            package_count: 0,
+            current_version: None,
+        };
+
+        let plain = render_text_report(&report, false);
+
+        assert!(plain.contains("PASS  config"));
+        assert!(plain.contains("FAIL  packages"));
+        assert!(!plain.contains("\u{1b}["));
+    }
+
+    #[test]
+    fn doctor_run_preserves_failure_result_for_library_callers() -> Result<(), String> {
+        let temp = TempDir::new().map_err(|error| error.to_string())?;
+        std::fs::write(temp.path().join("verso.toml"), "[workspaces]\npatterns = [")
+            .map_err(|error| error.to_string())?;
+
+        let error = run(&temp.path().join("verso.toml"), true, true)
+            .expect_err("failed doctor reports should remain errors for library callers");
+
+        assert_eq!(error, "doctor found release readiness problems");
         Ok(())
     }
 

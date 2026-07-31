@@ -130,7 +130,7 @@ pub fn load_config(path: &Path) -> Result<Config, String> {
     let contents = fs::read_to_string(path).map_err(|error| {
         if error.kind() == ErrorKind::NotFound {
             format!(
-                "failed to read {}: {error}\nCreate a verso.toml with `verso init`, or omit [workspaces] for a single-package release.\nPass a different config path with --config <PATH>.",
+                "failed to read {}: {error}\n\nhelp: create a verso.toml with `verso init`, or omit [workspaces] for a single-package release.\nhelp: pass a different config path with --config <PATH>.",
                 path.display()
             )
         } else {
@@ -576,6 +576,7 @@ mod tests {
         assert!(error.contains("verso init"));
         assert!(error.contains("single-package"));
         assert!(error.contains("--config <PATH>"));
+        assert!(error.contains("help:"));
     }
 
     #[test]

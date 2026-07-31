@@ -1,3 +1,4 @@
+use crate::diagnostic::render_warning;
 use anstyle::{AnsiColor, Style};
 use semver::Version;
 use serde_json::json;
@@ -136,7 +137,7 @@ pub fn render_dry_run(root: &Path, plan: &ReleasePlan) -> String {
     if !plan.warnings.is_empty() {
         output.push_str("\nWarnings:\n");
         for warning in &plan.warnings {
-            output.push_str(&format!("- {warning}\n"));
+            output.push_str(&render_warning(warning, false));
         }
     }
 
@@ -231,14 +232,7 @@ pub fn render_dry_run_styled(root: &Path, plan: &ReleasePlan) -> String {
         output.push('\n');
         output.push_str(&section_title("Warnings"));
         for warning in &plan.warnings {
-            output.push_str(&format!(
-                "{} {}\n",
-                style_text(
-                    "!",
-                    Style::new().bold().fg_color(Some(AnsiColor::Yellow.into()))
-                ),
-                warning
-            ));
+            output.push_str(&render_warning(warning, true));
         }
     }
 
@@ -489,7 +483,7 @@ mod tests {
         assert!(output.contains("Target version: 1.3.0"));
         assert!(output.contains("Package count: 1"));
         assert!(output.contains("Warnings"));
-        assert!(output.contains("working tree has generated files"));
+        assert!(output.contains("warning: working tree has generated files"));
         assert!(output.contains("git push --atomic"));
         Ok(())
     }
@@ -509,7 +503,7 @@ mod tests {
         assert!(output.contains("DRY RUN"));
         assert!(output.contains("1.2.3 -> 1.3.0"));
         assert!(output.contains("Warnings"));
-        assert!(output.contains("!"));
+        assert!(output.contains("warning"));
         assert!(output.contains("working tree has generated files"));
         assert!(output.contains("$ git push --atomic"));
         Ok(())

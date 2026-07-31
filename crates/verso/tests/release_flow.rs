@@ -130,6 +130,40 @@ fn dry_run_infers_pnpm_workspace_and_lists_manifest_paths() -> Result<(), Box<dy
 }
 
 #[test]
+fn missing_package_version_renders_error_and_help() -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_pnpm_workspace_with_missing_version_fixture(repo.path())?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--dry-run", "--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error: package docs"))
+        .stderr(predicate::str::contains("help:"))
+        .stderr(predicate::str::contains("\u{1b}[").not());
+
+    Ok(())
+}
+
+#[test]
+fn failing_doctor_json_keeps_stderr_empty() -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_pnpm_workspace_with_missing_version_fixture(repo.path())?;
+
+    let output = Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["doctor", "--json"])
+        .output()?;
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(!output.status.success());
+    assert_eq!(report["ok"], false);
+    assert!(output.stderr.is_empty());
+    Ok(())
+}
+
+#[test]
 fn explicit_missing_config_still_fails() -> Result<(), Box<dyn std::error::Error>> {
     let repo = TempDir::new()?;
     init_repo(repo.path())?;
@@ -152,7 +186,8 @@ fn explicit_missing_config_still_fails() -> Result<(), Box<dyn std::error::Error
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("failed to read"));
+        .stderr(predicate::str::contains("failed to read"))
+        .stderr(predicate::str::contains("help:"));
 
     Ok(())
 }
@@ -186,8 +221,9 @@ fn release_updates_versions_changelog_commit_and_tag_before_push(
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Local release commit and tag were created",
+            "note: Local release commit and tag were created",
         ))
+        .stderr(predicate::str::contains("help:"))
         .stderr(predicate::str::contains("git push --atomic"));
 
     assert!(
@@ -497,7 +533,7 @@ fn abort_before_modifying_release_files_leaves_worktree_clean(
         .stdout(predicate::str::contains(
             "Modify release files for 0.2.0? [Y/n]",
         ))
-        .stderr(predicate::str::contains("release aborted"));
+        .stderr(predicate::str::contains("cancelled: release aborted"));
 
     assert!(
         fs::read_to_string(repo.path().join("package.json"))?.contains("\"version\": \"0.1.0\"")
@@ -625,7 +661,8 @@ fn existing_tag_blocks_release_without_writing_files() -> Result<(), Box<dyn std
         .args(["--version", "0.2.0", "--yes"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("tag v0.2.0 already exists"));
+        .stderr(predicate::str::contains("tag v0.2.0 already exists"))
+        .stderr(predicate::str::contains("help:"));
 
     assert!(
         fs::read_to_string(repo.path().join("package.json"))?.contains("\"version\": \"0.1.0\"")
@@ -710,7 +747,8 @@ require_clean_worktree = false
         .args(["--version", "0.2.0", "--yes"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("release files are dirty"));
+        .stderr(predicate::str::contains("release files are dirty"))
+        .stderr(predicate::str::contains("help:"));
 
     assert!(
         fs::read_to_string(repo.path().join("package.json"))?.contains("\"version\": \"0.1.0\"")
@@ -1030,6 +1068,21 @@ fn write_file(path: &Path, contents: &str) -> Result<(), Box<dyn std::error::Err
         fs::create_dir_all(parent)?;
     }
     fs::write(path, contents)?;
+    Ok(())
+}
+
+fn write_pnpm_workspace_with_missing_version_fixture(
+    path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    write_file(
+        &path.join("package.json"),
+        "{\n  \"name\": \"root\",\n  \"version\": \"0.1.0\"\n}\n",
+    )?;
+    write_file(
+        &path.join("docs/package.json"),
+        "{\n  \"name\": \"docs\"\n}\n",
+    )?;
+    write_file(&path.join("pnpm-workspace.yaml"), "packages:\n  - docs\n")?;
     Ok(())
 }
 

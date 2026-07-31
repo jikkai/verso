@@ -3,6 +3,7 @@ use crate::{
     changelog::{self, render_changelog_entry},
     cli::Cli,
     config::{self, render_template},
+    diagnostic::stdout_supports_color,
     doctor,
     dry_run::{
         render_dry_run, render_dry_run_json, render_dry_run_styled, PlannedHook, ReleasePlan,
@@ -15,11 +16,13 @@ use crate::{
 use inquire::{Confirm, Select, Text};
 use semver::Version;
 use std::{
-    env, fmt, fs,
+    fmt, fs,
     io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
     process::Command,
 };
+
+const RELEASE_CANCELLED: &str = "cancelled: release aborted";
 
 pub fn run(cli: Cli) -> Result<(), String> {
     if cli.json && !cli.dry_run {
@@ -69,7 +72,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
         };
         if cli.json {
             println!("{}", render_dry_run_json(&root, &plan));
-        } else if should_style_human_output() {
+        } else if stdout_supports_color() {
             print!("{}", render_dry_run_styled(&root, &plan));
         } else {
             print!("{}", render_dry_run(&root, &plan));
@@ -200,18 +203,12 @@ pub fn run(cli: Cli) -> Result<(), String> {
     }
     git::push_release(&root, &upstream, &tag_name).map_err(|error| {
         format!(
-            "{error}\nLocal release commit and tag were created. Fix the remote problem, then push the current branch and tag {tag_name}."
+            "{error}\n\nnote: Local release commit and tag were created.\nhelp: fix the remote problem, then push the current branch and tag {tag_name}."
         )
     })?;
     run_hook(&root, "after_push", &config.hooks.after_push)?;
 
     Ok(())
-}
-
-fn should_style_human_output() -> bool {
-    io::stdout().is_terminal()
-        && env::var_os("NO_COLOR").is_none()
-        && env::var_os("TERM").is_none_or(|term| term != "dumb")
 }
 
 fn resolve_target_version(
@@ -486,14 +483,14 @@ fn confirm_default_yes(question: &str) -> Result<(), String> {
             .map_err(inquire_error)?
         {
             true => Ok(()),
-            false => Err("release aborted".to_string()),
+            false => Err(RELEASE_CANCELLED.to_string()),
         };
     }
 
     let answer = read_prompt(&format!("{question} [Y/n] "))?;
     match answer.as_str() {
         "" | "y" | "Y" | "yes" | "YES" | "Yes" => Ok(()),
-        _ => Err("release aborted".to_string()),
+        _ => Err(RELEASE_CANCELLED.to_string()),
     }
 }
 
@@ -505,14 +502,14 @@ fn confirm_default_no(question: &str) -> Result<(), String> {
             .map_err(inquire_error)?
         {
             true => Ok(()),
-            false => Err("release aborted".to_string()),
+            false => Err(RELEASE_CANCELLED.to_string()),
         };
     }
 
     let answer = read_prompt(&format!("{question} [y/N] "))?;
     match answer.as_str() {
         "y" | "Y" | "yes" | "YES" | "Yes" => Ok(()),
-        _ => Err("release aborted".to_string()),
+        _ => Err(RELEASE_CANCELLED.to_string()),
     }
 }
 
@@ -531,7 +528,7 @@ fn interactive_terminal() -> bool {
 fn inquire_error(error: inquire::InquireError) -> String {
     match error {
         inquire::InquireError::OperationCanceled | inquire::InquireError::OperationInterrupted => {
-            "release aborted".to_string()
+            RELEASE_CANCELLED.to_string()
         }
         error => format!("interactive prompt failed: {error}"),
     }
@@ -664,21 +661,28 @@ fn dry_run_warnings(root: &Path, tag_name: &str) -> Result<Vec<String>, String> 
 }
 
 fn dirty_worktree_warning() -> String {
-    "working tree is dirty; Commit, stash, or revert local changes before releasing.".to_string()
+    [
+        "working tree is dirty",
+        "",
+        "note: dry-run will not modify files.",
+        "help: commit, stash, or revert local changes before running a real release.",
+    ]
+    .join("\n")
 }
 
 fn existing_tag_warning(tag_name: &str) -> String {
     format!(
-        "tag {tag_name} already exists; choose a different version or inspect it with: git show {tag_name}"
+        "tag {tag_name} already exists\n\nhelp: choose a different version or inspect it with: git show {tag_name}"
     )
 }
 
 fn dirty_worktree_error() -> String {
     [
         "working tree is dirty",
-        "Commit, stash, or revert local changes before releasing.",
-        "Run with --dry-run to preview without requiring a clean worktree.",
-        "If dirty releases are intentional, set git.require_clean_worktree = false in verso.toml.",
+        "",
+        "help: commit, stash, or revert local changes before releasing.",
+        "note: run with --dry-run to preview without requiring a clean worktree.",
+        "note: if dirty releases are intentional, set git.require_clean_worktree = false in verso.toml.",
     ]
     .join("\n")
 }
@@ -686,8 +690,9 @@ fn dirty_worktree_error() -> String {
 fn dirty_release_files_error() -> String {
     [
         "release files are dirty",
-        "Commit, stash, or revert changes to package manifests, Cargo manifests and lockfiles, or the changelog before releasing.",
-        "git.require_clean_worktree = false only permits changes to unrelated files.",
+        "",
+        "help: commit, stash, or revert changes to package manifests, Cargo manifests and lockfiles, or the changelog before releasing.",
+        "note: git.require_clean_worktree = false only permits changes to unrelated files.",
     ]
     .join("\n")
 }
@@ -695,8 +700,9 @@ fn dirty_release_files_error() -> String {
 fn dirty_index_error() -> String {
     [
         "Git index is not clean",
-        "Commit or unstage existing staged changes before releasing.",
-        "Verso will not include unrelated staged files in a release commit.",
+        "",
+        "help: commit or unstage existing staged changes before releasing.",
+        "note: Verso will not include unrelated staged files in a release commit.",
     ]
     .join("\n")
 }
@@ -704,9 +710,11 @@ fn dirty_index_error() -> String {
 fn existing_tag_error(tag_name: &str) -> String {
     [
         format!("tag {tag_name} already exists"),
-        "Choose a different version, or inspect the existing tag before continuing.".to_string(),
-        format!("Inspect it with: git show {tag_name}"),
-        format!("If it was created by mistake, delete it with: git tag -d {tag_name}"),
+        String::new(),
+        "help: choose a different version, or inspect the existing tag before continuing."
+            .to_string(),
+        format!("note: inspect it with: git show {tag_name}"),
+        format!("note: if it was created by mistake, delete it with: git tag -d {tag_name}"),
     ]
     .join("\n")
 }
@@ -1184,6 +1192,16 @@ mod tests {
             Some(&TargetVersionChoice::Stable(Version::new(1, 0, 0)))
         );
         Ok(())
+    }
+
+    #[test]
+    fn dry_run_warnings_include_actionable_help() {
+        let dirty = dirty_worktree_warning();
+        let tag = existing_tag_warning("v1.2.3");
+
+        assert!(dirty.contains("note:"));
+        assert!(dirty.contains("help:"));
+        assert!(tag.contains("help:"));
     }
 
     fn init_repo() -> Result<TempDir, String> {

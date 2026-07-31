@@ -1,4 +1,5 @@
 use verso::cli::{Cli, Commands};
+use verso::diagnostic::{render_error, stderr_supports_color};
 
 fn main() {
     let mut cli = Cli::parse_args();
@@ -12,14 +13,18 @@ fn main() {
     let command = cli.command.take();
     let result = match command {
         Some(Commands::Doctor(args)) => {
-            verso::doctor::run(&config_path, allow_missing_default_config, args.json)
+            verso::doctor::run_with_status(&config_path, allow_missing_default_config, args.json)
         }
-        Some(Commands::Init(args)) => verso::init::run(&config_path, &args),
-        None => verso::release::run(cli),
+        Some(Commands::Init(args)) => verso::init::run(&config_path, &args).map(|()| true),
+        None => verso::release::run(cli).map(|()| true),
     };
 
-    if let Err(error) = result {
-        eprintln!("{error}");
-        std::process::exit(1);
+    match result {
+        Ok(true) => {}
+        Ok(false) => std::process::exit(1),
+        Err(error) => {
+            eprint!("{}", render_error(&error, stderr_supports_color()));
+            std::process::exit(1);
+        }
     }
 }

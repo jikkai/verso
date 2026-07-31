@@ -121,7 +121,7 @@ fn package_manifest_from_json_value(
     let context = package_context(path, name.as_deref());
     let version_value = object
         .get("version")
-        .ok_or_else(|| format!("{context} is missing required string field \"version\""))?;
+        .ok_or_else(|| missing_version_error(&context))?;
     let version_string = version_value
         .as_str()
         .ok_or_else(|| format!("{context} field \"version\" must be a string"))?;
@@ -152,7 +152,7 @@ fn package_manifest_from_yaml_value(
     let context = package_context(path, name.as_deref());
     let version_value = object
         .get("version")
-        .ok_or_else(|| format!("{context} is missing required string field \"version\""))?;
+        .ok_or_else(|| missing_version_error(&context))?;
     let version_string = version_value
         .as_str()
         .ok_or_else(|| format!("{context} field \"version\" must be a string"))?;
@@ -210,6 +210,12 @@ fn package_context(path: &Path, name: Option<&str>) -> String {
         Some(name) => format!("package {name} ({})", path.display()),
         None => format!("package {}", path.display()),
     }
+}
+
+fn missing_version_error(context: &str) -> String {
+    format!(
+        "{context} is missing required string field \"version\"\n\nhelp: add a valid SemVer string to \"version\", or exclude this package with workspaces.ignore in verso.toml"
+    )
 }
 
 fn find_top_level_json_version_value_range(contents: &str) -> Result<Option<Range<usize>>, String> {

@@ -2,6 +2,7 @@ pub mod cargo_manifest;
 pub mod changelog;
 pub mod cli;
 pub mod config;
+pub mod diagnostic;
 pub mod doctor;
 pub mod dry_run;
 pub mod git;
