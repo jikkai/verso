@@ -3,11 +3,11 @@ packages:
   - packages/*
 
 allowBuilds:
-  esbuild: true
+  esbuild: false
   simple-git-hooks: true
 
 minimumReleaseAgeExclude:
-  - "@amamo/oxlint-config@1.0.0"
+  - "@amamo/*"
 
 supportedArchitectures:
   os:
