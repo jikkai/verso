@@ -1,6 +1,6 @@
 {
   "name": "@amamo/verso-darwin-x64",
-  "version": "1.0.0-rc.4",
+  "version": "1.0.0",
   "description": "macOS x64 binary for @amamo/verso.",
   "homepage": "https://github.com/jikkai/verso#readme",
   "bugs": {

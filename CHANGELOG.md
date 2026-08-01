@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.0](https://github.com/jikkai/verso/compare/v1.0.0-rc.4...v1.0.0) (2026-08-01)
+
+### Other Changes (chore)
+
+* **tooling:** centralize lint and formatting configuration ([#11](https://github.com/jikkai/verso/issues/11)) ([b2d6e45](https://github.com/jikkai/verso/commit/b2d6e4598e57fc88113cd38020c3a38bb6a16e51))
+
 ## [1.0.0-rc.4](https://github.com/jikkai/verso/compare/v1.0.0-rc.3...v1.0.0-rc.4) (2026-07-31)
 
 ### Bug Fixes
