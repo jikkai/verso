@@ -21,9 +21,6 @@ pnpm run check
 - TypeScript checks for the release helper scripts and the npm wrapper
 - Wrapper tests
 
-PRs that change dependency manifests or lockfiles run Dependency Review before
-merge.
-
 ## Code Standards
 
 Keep Rust formatted with rustfmt and free of clippy warnings. Keep TypeScript
