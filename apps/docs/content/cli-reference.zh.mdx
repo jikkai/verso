@@ -11,15 +11,15 @@ description: Verso 命令行提供的命令和参数。
 verso [OPTIONS]
 ```
 
-| 参数 | 默认值 | 说明 |
-| --- | --- | --- |
-| `--dry-run` | `false` | 预览发布，不写文件，也不执行会修改状态的 Git 命令 |
-| `--json` | `false` | 以 JSON 输出 dry-run 结果；必须和 `--dry-run` 一起使用 |
-| `--version <SEMVER>` | 无 | 使用准确的目标版本，跳过交互式选择 |
-| `--config <PATH>` | `verso.toml` | 读取其他配置文件 |
-| `--yes` | `false` | 跳过确认；不会替你选择版本 |
-| `-V`、`--tool-version` | 无 | 打印 Verso CLI 版本并退出 |
-| `--help` | 无 | 打印命令帮助 |
+| 参数                   | 默认值       | 说明                                                   |
+| ---------------------- | ------------ | ------------------------------------------------------ |
+| `--dry-run`            | `false`      | 预览发布，不写文件，也不执行会修改状态的 Git 命令      |
+| `--json`               | `false`      | 以 JSON 输出 dry-run 结果；必须和 `--dry-run` 一起使用 |
+| `--version <SEMVER>`   | 无           | 使用准确的目标版本，跳过交互式选择                     |
+| `--config <PATH>`      | `verso.toml` | 读取其他配置文件                                       |
+| `--yes`                | `false`      | 跳过确认；不会替你选择版本                             |
+| `-V`、`--tool-version` | 无           | 打印 Verso CLI 版本并退出                              |
+| `--help`               | 无           | 打印命令帮助                                           |
 
 常用示例：
 
@@ -46,11 +46,11 @@ stdin 或 stdout 不是终端时，Verso 会保留纯文本提示。脚本输入
 verso init [--single | --workspace] [--force]
 ```
 
-| 参数 | 说明 |
-| --- | --- |
-| `--single` | 生成单包配置 |
+| 参数          | 说明                |
+| ------------- | ------------------- |
+| `--single`    | 生成单包配置        |
 | `--workspace` | 生成 workspace 配置 |
-| `--force` | 覆盖已有配置 |
+| `--force`     | 覆盖已有配置        |
 
 未明确指定模式时，命令会检测 `packages/*` workspace；没有这种目录结构时生成单包配置。
 

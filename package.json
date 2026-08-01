@@ -2,20 +2,16 @@
   "name": "@amamo/verso-repo",
   "private": true,
   "description": "A focused release CLI for JavaScript workspace packages.",
+  "homepage": "https://github.com/jikkai/verso#readme",
+  "bugs": {
+    "url": "https://github.com/jikkai/verso/issues"
+  },
   "license": "MIT",
   "author": "白熱 <sonne@asaki.me>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jikkai/verso.git"
   },
-  "bugs": {
-    "url": "https://github.com/jikkai/verso/issues"
-  },
-  "homepage": "https://github.com/jikkai/verso#readme",
-  "engines": {
-    "node": ">=22.18.0"
-  },
-  "packageManager": "pnpm@11.18.0",
   "scripts": {
     "prepare": "simple-git-hooks",
     "precommit": "pnpm run format:check && pnpm run lint",
@@ -25,21 +21,28 @@
     "check:npm": "pnpm --filter @amamo/verso typecheck && pnpm --filter @amamo/verso test",
     "check:rust": "cargo fmt --check && cargo clippy --locked --all-targets --all-features -- -D warnings && cargo test --locked --all",
     "check:scripts": "tsc -p tsconfig.json --noEmit",
-    "format": "oxfmt --write scripts packages/verso/src packages/verso/scripts && cargo fmt",
-    "format:check": "oxfmt --check scripts packages/verso/src packages/verso/scripts && cargo fmt --check",
-    "lint": "oxlint --ignore-path .oxlintignore .",
+    "format": "oxfmt . && cargo fmt",
+    "format:check": "oxfmt --check . && cargo fmt --check",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
     "docs:dev": "pnpm --filter @amamo/verso-docs dev",
     "docs:build": "pnpm --filter @amamo/verso-docs build",
     "release": "cargo run -p verso"
   },
+  "devDependencies": {
+    "@amamo/oxlint-config": "1.0.0",
+    "@types/node": "^26.1.2",
+    "oxfmt": "^0.61.0",
+    "oxlint": "^1.76.0",
+    "oxlint-tailwindcss": "^1.6.0",
+    "simple-git-hooks": "^2.13.1",
+    "typescript": "^7.0.2"
+  },
   "simple-git-hooks": {
     "pre-commit": "pnpm run precommit"
   },
-  "devDependencies": {
-    "@types/node": "^26.1.2",
-    "oxfmt": "^0.61.0",
-    "oxlint": "^1.74.0",
-    "simple-git-hooks": "^2.13.1",
-    "typescript": "^7.0.2"
-  }
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "packageManager": "pnpm@11.18.0"
 }

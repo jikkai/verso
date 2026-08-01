@@ -49,12 +49,12 @@ support `*`, `**`, `?`, character classes, braces, and `!` exclusions.
 When `patterns` is empty, Verso reads `pnpm-workspace.yaml` or the root manifest's `workspaces`
 field. If neither exists, it uses single-package mode.
 
-| Key | Default | Purpose |
-| --- | --- | --- |
-| `patterns` | `[]` | Workspace globs used to discover package directories |
-| `include_root` | `true` | Include the package selected by `version.root_package` |
-| `ignore` | `[]` | Extra path or directory-name patterns to exclude |
-| `use_gitignore` | `true` | Honor root and nested `.gitignore` files during discovery |
+| Key             | Default | Purpose                                                   |
+| --------------- | ------- | --------------------------------------------------------- |
+| `patterns`      | `[]`    | Workspace globs used to discover package directories      |
+| `include_root`  | `true`  | Include the package selected by `version.root_package`    |
+| `ignore`        | `[]`    | Extra path or directory-name patterns to exclude          |
+| `use_gitignore` | `true`  | Honor root and nested `.gitignore` files during discovery |
 
 Package discovery supports `package.json`, `package.json5`, `package.yaml`, and `package.yml`. If a
 directory contains more than one, Verso selects them in that order.
@@ -93,12 +93,12 @@ The tag template must contain `${version}`. `atomic` is the only push mode; the 
 
 Hooks run between release stages and use the project's shell environment:
 
-| Hook | Runs |
-| --- | --- |
+| Hook                               | Runs                                      |
+| ---------------------------------- | ----------------------------------------- |
 | `before_version` / `after_version` | Around version and changelog file updates |
-| `before_commit` / `after_commit` | Around release commit creation |
-| `before_tag` / `after_tag` | Around tag creation |
-| `before_push` / `after_push` | Around the atomic push |
+| `before_commit` / `after_commit`   | Around release commit creation            |
+| `before_tag` / `after_tag`         | Around tag creation                       |
+| `before_push` / `after_push`       | Around the atomic push                    |
 
 Use hooks for repository-specific checks, builds, or notifications. Verso stops on a failing hook
 and applies the rollback behavior for that stage.

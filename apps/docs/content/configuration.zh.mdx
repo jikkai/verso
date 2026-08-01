@@ -49,11 +49,11 @@ enabled = false
 `patterns` 为空时，Verso 会读取 `pnpm-workspace.yaml` 或根 package manifest 的 `workspaces`
 字段。两者都不存在时，回退到单包模式。
 
-| 配置项 | 默认值 | 用途 |
-| --- | --- | --- |
-| `patterns` | `[]` | 用于发现软件包目录的 workspace glob |
-| `include_root` | `true` | 包含 `version.root_package` 选中的根软件包 |
-| `ignore` | `[]` | 额外排除的路径或目录名模式 |
+| 配置项          | 默认值 | 用途                                        |
+| --------------- | ------ | ------------------------------------------- |
+| `patterns`      | `[]`   | 用于发现软件包目录的 workspace glob         |
+| `include_root`  | `true` | 包含 `version.root_package` 选中的根软件包  |
+| `ignore`        | `[]`   | 额外排除的路径或目录名模式                  |
 | `use_gitignore` | `true` | 发现过程中读取根目录和子目录的 `.gitignore` |
 
 软件包发现支持 `package.json`、`package.json5`、`package.yaml` 和 `package.yml`。同一目录存在多个
@@ -92,12 +92,12 @@ Tag 模板必须包含 `${version}`。`atomic` 是唯一的推送模式；旧的
 
 钩子在各个发布阶段之间运行，并使用项目的 shell 环境：
 
-| 钩子 | 执行时机 |
-| --- | --- |
+| 钩子                               | 执行时机                      |
+| ---------------------------------- | ----------------------------- |
 | `before_version` / `after_version` | 更新版本与 changelog 文件前后 |
-| `before_commit` / `after_commit` | 创建 release commit 前后 |
-| `before_tag` / `after_tag` | 创建 tag 前后 |
-| `before_push` / `after_push` | 原子推送前后 |
+| `before_commit` / `after_commit`   | 创建 release commit 前后      |
+| `before_tag` / `after_tag`         | 创建 tag 前后                 |
+| `before_push` / `after_push`       | 原子推送前后                  |
 
 可以用钩子运行仓库自己的检查、构建或通知。钩子失败后 Verso 会停止，并按当前阶段的规则回滚。
 

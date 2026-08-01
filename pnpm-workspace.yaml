@@ -6,6 +6,9 @@ allowBuilds:
   esbuild: true
   simple-git-hooks: true
 
+minimumReleaseAgeExclude:
+  - "@amamo/oxlint-config@1.0.0"
+
 supportedArchitectures:
   os:
     - darwin

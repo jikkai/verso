@@ -2,25 +2,25 @@
   "name": "@amamo/verso-linux-arm64",
   "version": "1.0.0-rc.4",
   "description": "Linux arm64 binary for @amamo/verso.",
+  "homepage": "https://github.com/jikkai/verso#readme",
+  "bugs": {
+    "url": "https://github.com/jikkai/verso/issues"
+  },
   "license": "MIT",
   "author": "白熱 <sonne@asaki.me>",
-  "homepage": "https://github.com/jikkai/verso#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jikkai/verso.git",
     "directory": "packages/verso-linux-arm64"
   },
-  "bugs": {
-    "url": "https://github.com/jikkai/verso/issues"
-  },
+  "files": [
+    "bin/verso"
+  ],
   "os": [
     "linux"
   ],
   "cpu": [
     "arm64"
-  ],
-  "files": [
-    "bin/verso"
   ],
   "publishConfig": {
     "access": "public",

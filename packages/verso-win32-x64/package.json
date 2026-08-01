@@ -2,25 +2,25 @@
   "name": "@amamo/verso-win32-x64",
   "version": "1.0.0-rc.4",
   "description": "Windows x64 binary for @amamo/verso.",
+  "homepage": "https://github.com/jikkai/verso#readme",
+  "bugs": {
+    "url": "https://github.com/jikkai/verso/issues"
+  },
   "license": "MIT",
   "author": "白熱 <sonne@asaki.me>",
-  "homepage": "https://github.com/jikkai/verso#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jikkai/verso.git",
     "directory": "packages/verso-win32-x64"
   },
-  "bugs": {
-    "url": "https://github.com/jikkai/verso/issues"
-  },
+  "files": [
+    "bin/verso.exe"
+  ],
   "os": [
     "win32"
   ],
   "cpu": [
     "x64"
-  ],
-  "files": [
-    "bin/verso.exe"
   ],
   "publishConfig": {
     "access": "public",
