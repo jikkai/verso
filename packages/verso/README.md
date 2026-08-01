@@ -6,13 +6,13 @@ release CLI. The native binary ships through an optional platform package; see
 
 ## Supported Platforms
 
-| Platform | CPU | Package |
-| --- | --- | --- |
-| macOS | arm64 | `@amamo/verso-darwin-arm64` |
-| macOS | x64 | `@amamo/verso-darwin-x64` |
-| Linux | arm64 | `@amamo/verso-linux-arm64` |
-| Linux | x64 | `@amamo/verso-linux-x64` |
-| Windows | x64 | `@amamo/verso-win32-x64` |
+| Platform | CPU   | Package                     |
+| -------- | ----- | --------------------------- |
+| macOS    | arm64 | `@amamo/verso-darwin-arm64` |
+| macOS    | x64   | `@amamo/verso-darwin-x64`   |
+| Linux    | arm64 | `@amamo/verso-linux-arm64`  |
+| Linux    | x64   | `@amamo/verso-linux-x64`    |
+| Windows  | x64   | `@amamo/verso-win32-x64`    |
 
 ## Installation
 

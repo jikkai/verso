@@ -77,31 +77,31 @@ alias for the safer atomic mode.
 
 ### All keys, most-tuned to least-tuned
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `workspaces.patterns` | `[]` | Workspace globs relative to the config directory. Forward slashes. Supports `*`, `**`, `?`, character classes, braces, and `!` exclusions. When omitted, reads `pnpm-workspace.yaml` or root manifest `workspaces`; otherwise single-package mode. |
-| `workspaces.include_root` | `true` | Include the package selected by `version.root_package`. |
-| `workspaces.ignore` | `[]` | Extra ignore patterns during discovery. Plain path segments such as `fixtures` match directories by name. |
-| `workspaces.use_gitignore` | `true` | Read root and nested `.gitignore` during discovery. Set `false` if a project intentionally publishes from ignored directories. |
-| `version.root_package` | `package.json` | Manifest read for the current version and root update. Forward slashes; must stay under the config directory. If omitted and `package.json` is absent, Verso tries `package.json5`, `package.yaml`, then `package.yml`. |
-| `version.require_consistent_versions` | `true` | Fail when discovered packages or configured Cargo manifests don't share one version. |
-| `version.cargo_manifest_paths` | `[]` | Cargo manifests whose `[package].version` is updated. The nearest `Cargo.lock` is updated when present. |
-| `changelog.enabled` | `true` | Set to `false` to leave the changelog untouched during releases. |
-| `changelog.infile` | `CHANGELOG.md` | Changelog file prepended during release. Forward slashes; must stay under the config directory. |
-| `changelog.preset` | `angular` | Only `angular` is supported. |
-| `git.require_clean_worktree` | `true` | Require a clean worktree before mutating files. When `false`, unrelated unstaged changes are allowed, but the index, release manifests, Cargo lockfiles, and the changelog must remain clean. |
-| `git.commit_message` | `chore(release): release v${version}` | `${version}` is replaced with the target version. Must not be empty. |
-| `git.tag_name` | `v${version}` | Must contain `${version}` and render a valid Git tag. |
-| `git.push` | `atomic` | Atomically push the current upstream branch and exact release tag. Only `atomic` is supported. |
-| `hooks.before_version` | None | Shell command run before release files are updated. |
-| `hooks.after_version` | None | Shell command run after release files are updated. |
-| `hooks.before_commit` | None | Shell command run before staging and committing. |
-| `hooks.after_commit` | None | Shell command run after the release commit is created. |
-| `hooks.before_tag` | None | Shell command run before the release tag is created. |
-| `hooks.after_tag` | None | Shell command run after the release tag is created. |
-| `hooks.before_push` | None | Shell command run before the atomic branch and tag push. |
-| `hooks.after_push` | None | Shell command run after the push succeeds. |
-| `github_release.enabled` | `false` | `true` is rejected in this version. |
+| Key                                   | Default                               | Description                                                                                                                                                                                                                                        |
+| ------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspaces.patterns`                 | `[]`                                  | Workspace globs relative to the config directory. Forward slashes. Supports `*`, `**`, `?`, character classes, braces, and `!` exclusions. When omitted, reads `pnpm-workspace.yaml` or root manifest `workspaces`; otherwise single-package mode. |
+| `workspaces.include_root`             | `true`                                | Include the package selected by `version.root_package`.                                                                                                                                                                                            |
+| `workspaces.ignore`                   | `[]`                                  | Extra ignore patterns during discovery. Plain path segments such as `fixtures` match directories by name.                                                                                                                                          |
+| `workspaces.use_gitignore`            | `true`                                | Read root and nested `.gitignore` during discovery. Set `false` if a project intentionally publishes from ignored directories.                                                                                                                     |
+| `version.root_package`                | `package.json`                        | Manifest read for the current version and root update. Forward slashes; must stay under the config directory. If omitted and `package.json` is absent, Verso tries `package.json5`, `package.yaml`, then `package.yml`.                            |
+| `version.require_consistent_versions` | `true`                                | Fail when discovered packages or configured Cargo manifests don't share one version.                                                                                                                                                               |
+| `version.cargo_manifest_paths`        | `[]`                                  | Cargo manifests whose `[package].version` is updated. The nearest `Cargo.lock` is updated when present.                                                                                                                                            |
+| `changelog.enabled`                   | `true`                                | Set to `false` to leave the changelog untouched during releases.                                                                                                                                                                                   |
+| `changelog.infile`                    | `CHANGELOG.md`                        | Changelog file prepended during release. Forward slashes; must stay under the config directory.                                                                                                                                                    |
+| `changelog.preset`                    | `angular`                             | Only `angular` is supported.                                                                                                                                                                                                                       |
+| `git.require_clean_worktree`          | `true`                                | Require a clean worktree before mutating files. When `false`, unrelated unstaged changes are allowed, but the index, release manifests, Cargo lockfiles, and the changelog must remain clean.                                                      |
+| `git.commit_message`                  | `chore(release): release v${version}` | `${version}` is replaced with the target version. Must not be empty.                                                                                                                                                                               |
+| `git.tag_name`                        | `v${version}`                         | Must contain `${version}` and render a valid Git tag.                                                                                                                                                                                              |
+| `git.push`                            | `atomic`                              | Atomically push the current upstream branch and exact release tag. Only `atomic` is supported.                                                                                                                                                     |
+| `hooks.before_version`                | None                                  | Shell command run before release files are updated.                                                                                                                                                                                                |
+| `hooks.after_version`                 | None                                  | Shell command run after release files are updated.                                                                                                                                                                                                 |
+| `hooks.before_commit`                 | None                                  | Shell command run before staging and committing.                                                                                                                                                                                                   |
+| `hooks.after_commit`                  | None                                  | Shell command run after the release commit is created.                                                                                                                                                                                             |
+| `hooks.before_tag`                    | None                                  | Shell command run before the release tag is created.                                                                                                                                                                                               |
+| `hooks.after_tag`                     | None                                  | Shell command run after the release tag is created.                                                                                                                                                                                                |
+| `hooks.before_push`                   | None                                  | Shell command run before the atomic branch and tag push.                                                                                                                                                                                           |
+| `hooks.after_push`                    | None                                  | Shell command run after the push succeeds.                                                                                                                                                                                                         |
+| `github_release.enabled`              | `false`                               | `true` is rejected in this version.                                                                                                                                                                                                                |
 
 ## CLI
 
@@ -118,21 +118,21 @@ pnpm release -- -V
 pnpm release -- --help
 ```
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `--dry-run` | `false` | Preview the release without writing files or running mutating git commands. |
-| `--json` | `false` | Print dry-run output as JSON. Must be used with `--dry-run`. |
-| `--version <SEMVER>` | None | Use an exact target version without interactive selection. |
-| `--config <PATH>` | `verso.toml` | Read a different config file. |
-| `--yes` | `false` | Skip release confirmation prompts. It does not choose a version. |
-| `-V, --tool-version` | None | Print the Verso CLI version. |
-| `--help` | None | Print CLI help. |
+| Option               | Default      | Description                                                                 |
+| -------------------- | ------------ | --------------------------------------------------------------------------- |
+| `--dry-run`          | `false`      | Preview the release without writing files or running mutating git commands. |
+| `--json`             | `false`      | Print dry-run output as JSON. Must be used with `--dry-run`.                |
+| `--version <SEMVER>` | None         | Use an exact target version without interactive selection.                  |
+| `--config <PATH>`    | `verso.toml` | Read a different config file.                                               |
+| `--yes`              | `false`      | Skip release confirmation prompts. It does not choose a version.            |
+| `-V, --tool-version` | None         | Print the Verso CLI version.                                                |
+| `--help`             | None         | Print CLI help.                                                             |
 
 Subcommands:
 
-| Command | Description |
-| --- | --- |
-| `verso init` | Create a starter `verso.toml`. It auto-detects `packages/*`; use `--single`, `--workspace`, or `--force` to override behavior. |
+| Command        | Description                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verso init`   | Create a starter `verso.toml`. It auto-detects `packages/*`; use `--single`, `--workspace`, or `--force` to override behavior.                                            |
 | `verso doctor` | Validate config parsing, package discovery, version consistency, changelog path, Cargo manifest versions, and Git upstream readiness. Use `--json` for structured output. |
 
 Without `--version`, Verso opens an interactive menu for patch, minor, major,

@@ -11,15 +11,15 @@ Running `verso` without a subcommand starts a release:
 verso [OPTIONS]
 ```
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `--dry-run` | `false` | Preview the release without writing files or running mutating Git commands |
-| `--json` | `false` | Print dry-run output as JSON; must be used with `--dry-run` |
-| `--version <SEMVER>` | None | Use an exact target version without interactive selection |
-| `--config <PATH>` | `verso.toml` | Read a different config file |
-| `--yes` | `false` | Skip confirmation prompts; does not choose a version |
-| `-V`, `--tool-version` | None | Print the Verso CLI version and exit |
-| `--help` | None | Print command help |
+| Option                 | Default      | Description                                                                |
+| ---------------------- | ------------ | -------------------------------------------------------------------------- |
+| `--dry-run`            | `false`      | Preview the release without writing files or running mutating Git commands |
+| `--json`               | `false`      | Print dry-run output as JSON; must be used with `--dry-run`                |
+| `--version <SEMVER>`   | None         | Use an exact target version without interactive selection                  |
+| `--config <PATH>`      | `verso.toml` | Read a different config file                                               |
+| `--yes`                | `false`      | Skip confirmation prompts; does not choose a version                       |
+| `-V`, `--tool-version` | None         | Print the Verso CLI version and exit                                       |
+| `--help`               | None         | Print command help                                                         |
 
 Common examples:
 
@@ -47,11 +47,11 @@ Creates a starter `verso.toml`:
 verso init [--single | --workspace] [--force]
 ```
 
-| Option | Description |
-| --- | --- |
-| `--single` | Generate a single-package config |
-| `--workspace` | Generate a workspace config |
-| `--force` | Replace an existing config |
+| Option        | Description                      |
+| ------------- | -------------------------------- |
+| `--single`    | Generate a single-package config |
+| `--workspace` | Generate a workspace config      |
+| `--force`     | Replace an existing config       |
 
 Without an explicit mode, the command detects a `packages/*` workspace and otherwise creates a
 single-package config.

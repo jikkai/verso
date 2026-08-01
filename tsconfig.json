@@ -5,11 +5,7 @@
     "noEmit": true,
     "strict": true,
     "target": "ES2022",
-    "types": [
-      "node"
-    ]
+    "types": ["node"]
   },
-  "include": [
-    "scripts/*.mts"
-  ]
+  "include": ["scripts/*.mts"]
 }

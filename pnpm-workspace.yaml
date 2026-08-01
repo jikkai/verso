@@ -3,8 +3,11 @@ packages:
   - packages/*
 
 allowBuilds:
-  esbuild: true
+  esbuild: false
   simple-git-hooks: true
+
+minimumReleaseAgeExclude:
+  - "@amamo/*"
 
 supportedArchitectures:
   os:

@@ -28,12 +28,12 @@ Verso is designed for repositories where JavaScript packages share one version. 
 release boundary itself: version files, changelog, commit, tag, and atomic push. It does not try to
 replace package publishing, CI orchestration, or project-specific build steps.
 
-| Stage | Verso does | Your project does |
-| --- | --- | --- |
-| Validate | Checks config, package versions, Git state, and upstream readiness | Runs any checks attached to hooks |
-| Prepare | Updates manifests and configured Cargo files; prepends the changelog | Builds or tests if configured |
-| Record | Creates the release commit and exact version tag | Publishes packages from CI |
-| Push | Atomically pushes the current upstream branch and tag | Reacts to the pushed tag |
+| Stage    | Verso does                                                           | Your project does                 |
+| -------- | -------------------------------------------------------------------- | --------------------------------- |
+| Validate | Checks config, package versions, Git state, and upstream readiness   | Runs any checks attached to hooks |
+| Prepare  | Updates manifests and configured Cargo files; prepends the changelog | Builds or tests if configured     |
+| Record   | Creates the release commit and exact version tag                     | Publishes packages from CI        |
+| Push     | Atomically pushes the current upstream branch and tag                | Reacts to the pushed tag          |
 
 ## Safe before fast
 

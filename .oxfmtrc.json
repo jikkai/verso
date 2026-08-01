@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": [
+    "node_modules",
+    "target",
+    "artifacts",
+    "docs/superpowers",
+    "packages/*/bin",
+    "packages/*/dist",
+    "packages/*/test-dist",
+    "packages/*/verso",
+    "packages/*/verso.exe",
+    "CHANGELOG.md",
+    "Cargo.lock",
+    "pnpm-lock.yaml",
+    "*.tgz"
+  ]
+}
