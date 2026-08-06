@@ -21,7 +21,7 @@ ignore = []
 use_gitignore = true
 
 [changelog]
-enabled = true
+enabled = false
 infile = "CHANGELOG.md"
 preset = "angular"
 
@@ -76,8 +76,8 @@ discovered package and configured Cargo versions must match before the release s
 
 ## Changelog and Git
 
-Set `changelog.enabled = false` to leave the changelog untouched during releases. Only the Angular
-changelog preset is currently supported. The default release commit and tag are:
+Set `changelog.enabled = true` to generate and update the changelog during releases. Only the
+Angular changelog preset is currently supported. The default release commit and tag are:
 
 ```toml
 [git]

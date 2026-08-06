@@ -65,6 +65,7 @@ fn render_config(mode: InitMode) -> &'static str {
 root_package = "package.json"
 
 [changelog]
+enabled = false
 infile = "CHANGELOG.md"
 "#
         }
@@ -77,6 +78,7 @@ patterns = ["packages/*"]
 include_root = true
 
 [changelog]
+enabled = false
 infile = "CHANGELOG.md"
 "#
         }
@@ -105,6 +107,7 @@ mod tests {
 
         let contents = std::fs::read_to_string(config).map_err(|error| error.to_string())?;
         assert!(contents.contains("root_package = \"package.json\""));
+        assert!(contents.contains("enabled = false"));
         assert!(!contents.contains("[workspaces]"));
         Ok(())
     }

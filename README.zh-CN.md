@@ -43,7 +43,7 @@ ignore = []
 use_gitignore = true
 
 [changelog]
-enabled = true
+enabled = false
 infile = "CHANGELOG.md"
 preset = "angular"
 
@@ -76,7 +76,7 @@ enabled = false
 | `version.root_package`                | `package.json`                        | 用于读取当前版本并参与更新的根 package manifest。路径必须在配置文件目录内。省略且 `package.json` 不存在时，Verso 依次尝试 `package.json5`、`package.yaml`、`package.yml`。     |
 | `version.require_consistent_versions` | `true`                                | 发现 package 或配置的 Cargo manifest 版本不一致时是否失败。                                                                                                                    |
 | `version.cargo_manifest_paths`        | `[]`                                  | 需要同步更新 `[package].version` 的 Cargo manifest 路径。存在最近的 `Cargo.lock` 时会一起更新。                                                                                |
-| `changelog.enabled`                   | `true`                                | 设为 `false` 时发布过程不修改 changelog。                                                                                                                                      |
+| `changelog.enabled`                   | `false`                               | 设为 `true` 时发布过程会生成并更新 changelog。                                                                                                                                 |
 | `changelog.infile`                    | `CHANGELOG.md`                        | 发布时写入的 changelog 文件。路径必须在配置文件目录内。                                                                                                                        |
 | `changelog.preset`                    | `angular`                             | 目前只支持 `angular`。                                                                                                                                                         |
 | `git.require_clean_worktree`          | `true`                                | 修改文件前要求工作区干净。设为 `false` 时允许无关的未暂存改动，但 Git index、package/Cargo manifest、Cargo lockfile 和 changelog 仍必须干净。                                  |

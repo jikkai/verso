@@ -7,6 +7,7 @@ patterns = ["packages/*"]
 include_root = false
 
 [changelog]
+enabled = true
 infile = "CHANGELOG.md"
 
 [git]

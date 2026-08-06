@@ -154,7 +154,7 @@ pub fn default_config() -> Config {
             use_gitignore: true,
         },
         changelog: ChangelogConfig {
-            enabled: true,
+            enabled: false,
             infile: "CHANGELOG.md".to_owned(),
             preset: "angular".to_owned(),
         },
@@ -238,7 +238,7 @@ fn parse_config_with_label(contents: &str, label: &str) -> Result<Config, String
                 .unwrap_or(true),
         },
         changelog: ChangelogConfig {
-            enabled: changelog.enabled.unwrap_or(true),
+            enabled: changelog.enabled.unwrap_or(false),
             infile: changelog
                 .infile
                 .unwrap_or_else(|| "CHANGELOG.md".to_string()),
@@ -473,7 +473,7 @@ mod tests {
         assert!(config.workspaces.include_root);
         assert!(config.workspaces.ignore.is_empty());
         assert!(config.workspaces.use_gitignore);
-        assert!(config.changelog.enabled);
+        assert!(!config.changelog.enabled);
         assert_eq!(config.changelog.infile, "CHANGELOG.md");
         assert_eq!(config.changelog.preset, "angular");
         assert!(config.git.require_clean_worktree);

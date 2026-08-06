@@ -123,7 +123,7 @@ fn dry_run_infers_pnpm_workspace_and_lists_manifest_paths() -> Result<(), Box<dy
         .stdout(predicate::str::contains("Package count: 2"))
         .stdout(predicate::str::contains("packages/a/package.yaml"))
         .stdout(predicate::str::contains(
-            "git add 'CHANGELOG.md' 'package.json' 'packages/a/package.yaml'",
+            "git add 'package.json' 'packages/a/package.yaml'",
         ));
 
     Ok(())
@@ -304,7 +304,7 @@ include_root = true
 }
 
 #[test]
-fn dry_run_omits_changelog_when_disabled() -> Result<(), Box<dyn std::error::Error>> {
+fn dry_run_omits_changelog_by_default() -> Result<(), Box<dyn std::error::Error>> {
     let repo = TempDir::new()?;
     write_release_fixture(repo.path())?;
     write_file(
@@ -313,13 +313,13 @@ fn dry_run_omits_changelog_when_disabled() -> Result<(), Box<dyn std::error::Err
 [workspaces]
 patterns = ["packages/*"]
 include_root = true
-
-[changelog]
-enabled = false
 "#,
     )?;
     git(repo.path(), &["add", "verso.toml"])?;
-    git(repo.path(), &["commit", "-m", "test: disable changelog"])?;
+    git(
+        repo.path(),
+        &["commit", "-m", "test: use changelog default"],
+    )?;
 
     Command::cargo_bin("verso")?
         .current_dir(repo.path())
@@ -901,6 +901,7 @@ patterns = ["packages/*"]
 include_root = true
 
 [changelog]
+enabled = true
 infile = "ignored/CHANGELOG.md"
 "#,
     )?;
@@ -1102,6 +1103,9 @@ fn write_release_fixture(path: &Path) -> Result<(), Box<dyn std::error::Error>> 
 [workspaces]
 patterns = ["packages/*"]
 include_root = true
+
+[changelog]
+enabled = true
 "#,
     )?;
     write_file(&path.join("CHANGELOG.md"), "# Changelog\n")?;
