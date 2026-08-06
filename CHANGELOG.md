@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.1](https://github.com/jikkai/verso/compare/v1.0.0...v1.0.1) (2026-08-06)
+
+### Bug Fixes
+
+* **config:** disable changelog generation by default ([e3b3d1f](https://github.com/jikkai/verso/commit/e3b3d1fee513130429553d09752e3383be00ea4b))
+
+### Other Changes (chore)
+
+* update dependencies ([3e4d5ea](https://github.com/jikkai/verso/commit/3e4d5eaaafa9ed8751954be6decde9b8ec8d24b6))
+
 ## [1.0.0](https://github.com/jikkai/verso/compare/v1.0.0-rc.4...v1.0.0) (2026-08-01)
 
 ### Other Changes (chore)
