@@ -33,8 +33,8 @@ importers:
   apps/docs:
     dependencies:
       '@amamo/doctrine':
-        specifier: 0.1.0
-        version: 0.1.0(@types/node@26.1.2)(@types/react@19.2.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
+        specifier: 0.1.1
+        version: 0.1.1(@types/node@26.1.2)(@types/react@19.2.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
       '@base-ui/react':
         specifier: 1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -101,8 +101,8 @@ importers:
 
 packages:
 
-  '@amamo/doctrine@0.1.0':
-    resolution: {integrity: sha512-oG2IwTaK/BG1ykuK8s7YxQ4keUgaHaB14vhEPELc7l7GbuV7dEikaAlb/xbm/5hIM6ThKQX/b1d5u6JrZnxliw==}
+  '@amamo/doctrine@0.1.1':
+    resolution: {integrity: sha512-kJwKRiK2CNgttwySukLlsHM946GfCOw4mcYrJJtD5ljCYghZGKTT9uwz3ZpGIJv1CIjv3Iia9df4bz0QpJaCXQ==}
     engines: {node: '>=20.19'}
     hasBin: true
 
@@ -1556,7 +1556,7 @@ packages:
 
 snapshots:
 
-  '@amamo/doctrine@0.1.0(@types/node@26.1.2)(@types/react@19.2.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)':
+  '@amamo/doctrine@0.1.1(@types/node@26.1.2)(@types/react@19.2.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)':
     dependencies:
       '@amamo/mdx': 0.1.5(react@19.2.8)(vite@8.2.0(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))
       '@base-ui/react': 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
