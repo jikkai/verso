@@ -36,13 +36,12 @@ jobs:
       - name: Build static documentation
         run: pnpm --filter @amamo/verso-docs build
         env:
-          DOCS_BASE_PATH: ${{ format('{0}/', steps.pages.outputs.base_path) }}
           DOCS_SITE_URL: ${{ format('{0}/', steps.pages.outputs.base_url) }}
 
       - name: Upload documentation
         uses: actions/upload-pages-artifact@v5
         with:
-          path: apps/docs/dist/public
+          path: apps/docs/dist
 
   deploy:
     runs-on: ubuntu-latest

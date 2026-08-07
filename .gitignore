@@ -5,7 +5,8 @@
 /packages/*/bin/
 /packages/*/verso
 /packages/*/verso.exe
-/apps/docs/.source/
+/apps/docs/.amamo-mdx/
+/apps/docs/.doctrine/
 /apps/docs/dist/
 /apps/docs/node_modules/
 *.tgz

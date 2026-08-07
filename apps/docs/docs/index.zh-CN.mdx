@@ -1,6 +1,7 @@
 ---
 title: Verso
 description: 让 JavaScript workspace 中的所有软件包使用同一个版本发布。
+order: 1
 ---
 
 Verso 会更新 package manifest，生成 Angular 风格的 conventional changelog，创建 release commit
@@ -10,17 +11,17 @@ Verso 会更新 package manifest，生成 Angular 风格的 conventional changel
 pnpm add -D @amamo/verso
 ```
 
-<Cards>
-  <Card title="开始一次发布" href="/zh/getting-started">
+<CardGrid>
+  <Card title="开始一次发布" href="/zh-CN/getting-started/">
     安装 Verso、生成配置、检查仓库，并在真正写入前预览发布计划。
   </Card>
-  <Card title="配置 workspace" href="/zh/configuration">
+  <Card title="配置 workspace" href="/zh-CN/configuration/">
     控制软件包发现、版本文件、changelog、Git 行为和发布钩子。
   </Card>
-  <Card title="理解安全模型" href="/zh/release-workflow">
+  <Card title="理解安全模型" href="/zh-CN/release-workflow/">
     了解 Verso 会写入什么、何时回滚，以及推送失败后会保留什么。
   </Card>
-</Cards>
+</CardGrid>
 
 ## 刻意保持边界清晰
 
@@ -41,4 +42,4 @@ Verso 面向所有 JavaScript 软件包共用同一版本号的仓库。它负�
 - 分支和 tag 通过 `git push --atomic` 一起推送。
 - 推送失败时保留本地 commit 和 tag，避免隐藏已经完成的工作。
 
-接着阅读[快速开始](/zh/getting-started)，或直接查看完整的 [CLI 参考](/zh/cli-reference)。
+接着阅读[快速开始](/zh-CN/getting-started/)，或直接查看完整的 [CLI 参考](/zh-CN/cli-reference/)。

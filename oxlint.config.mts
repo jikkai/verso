@@ -18,7 +18,4 @@ export default amamo({
   rules: {
     "react/react-in-jsx-scope": "off",
   },
-  tailwindcss: {
-    entryPoint: "apps/docs/src/app.css",
-  },
 });

@@ -1,6 +1,7 @@
 ---
 title: Verso
 description: Release every package in a JavaScript workspace as one version.
+order: 1
 ---
 
 Verso updates package manifests, writes an Angular-style conventional changelog, creates a release
@@ -10,17 +11,17 @@ commit and tag, then atomically pushes the current upstream branch and release t
 pnpm add -D @amamo/verso
 ```
 
-<Cards>
-  <Card title="Start a release" href="/getting-started">
+<CardGrid>
+  <Card title="Start a release" href="/getting-started/">
     Install Verso, generate a config, validate the repository, and preview the plan.
   </Card>
-  <Card title="Configure the workspace" href="/configuration">
+  <Card title="Configure the workspace" href="/configuration/">
     Control package discovery, version files, changelog output, Git behavior, and hooks.
   </Card>
-  <Card title="Understand the safety model" href="/release-workflow">
+  <Card title="Understand the safety model" href="/release-workflow/">
     See what Verso writes, when it rolls back, and what remains after a push failure.
   </Card>
-</Cards>
+</CardGrid>
 
 ## A deliberately narrow release tool
 
@@ -42,4 +43,4 @@ replace package publishing, CI orchestration, or project-specific build steps.
 - The branch and tag are pushed together with `git push --atomic`.
 - A push failure keeps the local commit and tag so the repository does not hide completed work.
 
-Continue with [Getting started](/getting-started), or open the full [CLI reference](/cli-reference).
+Continue with [Getting started](/getting-started/), or open the full [CLI reference](/cli-reference/).
