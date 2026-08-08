@@ -1,79 +1,103 @@
 ---
-title: CLI reference
-description: Commands and options available in the Verso command-line interface.
-order: 4
+description: Command syntax, version selection, structured output, and exit behavior for the Verso CLI.
 ---
 
-## Release command
+# CLI reference
 
-Running `verso` without a subcommand starts a release:
+## `verso [OPTIONS]`
 
-```sh
-verso [OPTIONS]
-```
+Running without a subcommand plans or executes a release.
 
-| Option                 | Default      | Description                                                                |
-| ---------------------- | ------------ | -------------------------------------------------------------------------- |
-| `--dry-run`            | `false`      | Preview the release without writing files or running mutating Git commands |
-| `--json`               | `false`      | Print dry-run output as JSON; must be used with `--dry-run`                |
-| `--version <SEMVER>`   | None         | Use an exact target version without interactive selection                  |
-| `--config <PATH>`      | `verso.toml` | Read a different config file                                               |
-| `--yes`                | `false`      | Skip confirmation prompts; does not choose a version                       |
-| `-V`, `--tool-version` | None         | Print the Verso CLI version and exit                                       |
-| `--help`               | None         | Print command help                                                         |
-
-Common examples:
+| Option                 | Default      | Meaning                                                       |
+| ---------------------- | ------------ | ------------------------------------------------------------- |
+| `--dry-run`            | `false`      | Render a plan without writes, hooks, or mutating Git commands |
+| `--json`               | `false`      | Render the dry-run plan as JSON; rejected without `--dry-run` |
+| `--version <SEMVER>`   | interactive  | Use an exact valid SemVer target                              |
+| `--config <PATH>`      | `verso.toml` | Use another config; its parent becomes the release root       |
+| `--yes`                | `false`      | Accept release confirmations; does not select a version       |
+| `-V`, `--tool-version` | -            | Print the installed wrapper / native CLI version and exit     |
+| `--help`               | -            | Print command help                                            |
 
 ```sh
 verso --dry-run
-verso --dry-run --json
-verso --version 0.26.0
-verso --version 0.26.0-beta.1 --yes
-verso --config config/release.toml
+verso --dry-run --version 2.0.0-rc.0 --json
+verso --config config/verso.toml doctor --json
+verso --version 2.0.0 --yes
 verso --tool-version
 ```
 
-Without `--version`, the interactive menu offers patch, minor, major, alpha, beta, rc, and custom
-semantic versions. When the current version is a prerelease, it also offers the corresponding stable
-version. Prerelease channels prompt for a base version.
+### Interactive version selection
 
-When stdin or stdout is not a terminal, Verso keeps a plain-text prompt fallback. Scripted input can
-choose by name, such as `beta` followed by `minor`.
+Without `--version`, Verso offers patch, minor, major, alpha, beta, rc, and custom SemVer choices.
+When the current version is a prerelease, the corresponding stable version is offered too.
+
+Alpha, beta, and rc selections ask for a patch, minor, major, or custom base. Repeating the same
+channel on the same base increments its numeric suffix; changing the channel or base starts at `.0`.
+For example, selecting beta + minor from `1.3.0-beta.0` yields `1.3.0-beta.1`.
+
+An exact target may be equal to or lower than the current version. That requires a separate
+default-no confirmation unless `--yes` is set.
+
+When stdin or stdout is not a terminal, the same choices use plain-text prompts. Inputs can use a
+number or keyword, such as `beta` followed by `minor`.
+
+### Dry-run JSON
+
+The JSON object contains `currentVersion`, `targetVersion`, `packageFiles`, `extraVersionFiles`,
+`versionFiles`, `changelogFile`, `commitMessage`, `tagName`, `hooks`, `warnings`, and `gitCommands`.
+Paths are relative to the release root. The Git command arrays are previews and use upstream
+placeholders rather than contacting a remote.
 
 ## `verso init`
 
-Creates a starter `verso.toml`:
-
 ```sh
-verso init [--single | --workspace] [--force]
+verso [--config <PATH>] init [--single | --workspace] [--force]
 ```
 
-| Option        | Description                      |
-| ------------- | -------------------------------- |
-| `--single`    | Generate a single-package config |
-| `--workspace` | Generate a workspace config      |
-| `--force`     | Replace an existing config       |
+| Option        | Meaning                                |
+| ------------- | -------------------------------------- |
+| `--single`    | Write a single-package starter         |
+| `--workspace` | Write a `packages/*` workspace starter |
+| `--force`     | Replace an existing config file        |
 
-Without an explicit mode, the command detects a `packages/*` workspace and otherwise creates a
-single-package config.
+Without a mode, only `packages/*/package.json` is used for detection. Parent directories for a
+custom config path are created as needed.
 
 ## `verso doctor`
 
-Validates release readiness without starting a release:
-
 ```sh
-verso doctor [--json]
+verso [--config <PATH>] doctor [--json]
 ```
 
-The checks cover config parsing, package discovery, version consistency, changelog and Cargo paths,
-plus the current branch's Git upstream. `--json` produces structured output for CI.
+The report checks release root resolution, config, discovered packages, current and consistent
+versions, configured Cargo versions, changelog writability, and Git upstream readiness. Text output
+uses `PASS` / `FAIL`; JSON returns:
 
-## Package-manager scripts
+```json
+{
+  "ok": true,
+  "checks": [{ "name": "config", "status": "pass", "message": "..." }],
+  "packageCount": 3,
+  "currentVersion": "1.4.0"
+}
+```
 
-When Verso is installed as a dev dependency, remember the argument separator used by the package
-manager:
+A failed doctor report exits with status 1 even when JSON was written successfully.
+
+## Package-manager forwarding
+
+Using `pnpm exec` avoids an argument separator:
+
+```sh
+pnpm exec verso --dry-run
+```
+
+When `package.json` defines `"release": "verso"`, forward options with `--`:
 
 ```sh
 pnpm release -- --dry-run
 pnpm release -- doctor --json
 ```
+
+Verso exits with 0 on success and 1 for validation, cancellation, hook, Git, or launch errors. The
+npm wrapper forwards native exit codes and signals.

@@ -1,26 +1,25 @@
 # @amamo/verso
 
-The JavaScript wrapper for the [Verso](https://github.com/jikkai/verso)
-release CLI. The native binary ships through an optional platform package; see
-[Supported Platforms](#supported-platforms).
+The npm entry point for the [Verso](https://github.com/jikkai/verso) release CLI. It installs a
+small JavaScript launcher plus the native package for the current platform.
 
-## Supported Platforms
+## Supported targets
 
-| Platform | CPU   | Package                     |
-| -------- | ----- | --------------------------- |
-| macOS    | arm64 | `@amamo/verso-darwin-arm64` |
-| macOS    | x64   | `@amamo/verso-darwin-x64`   |
-| Linux    | arm64 | `@amamo/verso-linux-arm64`  |
-| Linux    | x64   | `@amamo/verso-linux-x64`    |
-| Windows  | x64   | `@amamo/verso-win32-x64`    |
+| Operating system | CPU   | Optional package            |
+| ---------------- | ----- | --------------------------- |
+| macOS            | arm64 | `@amamo/verso-darwin-arm64` |
+| macOS            | x64   | `@amamo/verso-darwin-x64`   |
+| Linux (GNU)      | arm64 | `@amamo/verso-linux-arm64`  |
+| Linux (GNU)      | x64   | `@amamo/verso-linux-x64`    |
+| Windows          | x64   | `@amamo/verso-win32-x64`    |
 
-## Installation
+Node.js 22.18 or newer is required. Install the wrapper, not a platform package directly:
 
 ```sh
 pnpm add -D @amamo/verso
 ```
 
-Add a release script:
+## First release
 
 ```json
 {
@@ -30,51 +29,41 @@ Add a release script:
 }
 ```
 
-## Usage
-
 ```sh
-pnpm release                       # interactive version selection
-pnpm release -- --dry-run          # preview without writing
-pnpm release -- --version 1.2.3    # explicit version
-pnpm release -- --version 1.2.3 --yes
-pnpm release -- --dry-run --json   # JSON for CI / scripts
-pnpm release -- init               # write a starter verso.toml
-pnpm release -- doctor             # validate config + packages
-pnpm release -- -V                 # print wrapper version
+pnpm release -- doctor
+pnpm release -- --dry-run --version 1.4.0
+pnpm release -- --version 1.4.0 --yes
 ```
 
-Without `--version`, Verso opens an interactive terminal menu. In
-non-terminal environments it keeps a plain text fallback for scripts and
-tests.
-
-A typical workspace project only needs `verso.toml` for the workspace globs:
+A single package can use built-in defaults. A workspace usually needs only:
 
 ```toml
 [workspaces]
 patterns = ["packages/*"]
 ```
 
-Without `verso.toml`, Verso falls back to built-in defaults when a root
-`package.json` exists. For the full configuration reference, see the
-[repository README](https://github.com/jikkai/verso#configuration).
+Verso updates one shared version, optionally writes a changelog, creates a release commit and
+annotated tag, and atomically pushes the current upstream branch plus that exact tag. It does not
+publish packages or create GitHub Releases.
+
+Read the full [configuration](https://jikkai.github.io/verso/configuration/),
+[CLI reference](https://jikkai.github.io/verso/cli-reference/), and
+[release state model](https://jikkai.github.io/verso/release-workflow/).
+
+## Launcher behavior
+
+The wrapper resolves the matching optional package, adds a missing executable bit on macOS/Linux,
+spawns the native binary with inherited stdio, and forwards its exit status or signal.
+
+`-V` and `--tool-version` are handled before native package resolution when they are the only
+argument, so the installed wrapper version can still be inspected if the optional package is missing.
 
 ## Troubleshooting
 
-`Could not find Verso platform binary` — the native optional dependency for
-your OS wasn't installed or isn't available. Check:
+`Could not find Verso platform binary` means the platform optional dependency is unavailable or was
+not installed. Confirm that optional dependencies are enabled, the target appears in the table, and
+reinstall `@amamo/verso`.
 
-- install `@amamo/verso`, not a platform package directly
-- optional dependencies are enabled in your package manager
-- your machine is one of the supported platform/CPU pairs above
-- reinstall from a fresh lockfile if the lockfile was made on a different OS
-  or with optional dependencies disabled
-
-`Failed to launch Verso binary` — the platform package was found but the
-executable couldn't start. On macOS and Linux the wrapper repairs missing
-executable bits before spawning the binary. Upgrade `@amamo/verso`,
-reinstall, and include the error's cause line in bug reports if it persists.
-
-For unsupported platforms, a new native package is needed before the wrapper
-can run. Include `pnpm release -- -V` output in bug reports — the wrapper
-handles it before loading the native binary, so it still works when the
-optional dependency is missing.
+`Failed to launch Verso binary` means the package was found but the executable could not start.
+Reinstall, retain the printed cause, and include the OS, CPU, Node.js version, package-manager version,
+and `pnpm exec verso --tool-version` output in a bug report.

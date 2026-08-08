@@ -1,13 +1,17 @@
 ---
-title: Configuration
-description: Configure package discovery, version files, changelog output, Git behavior, and hooks.
-order: 3
+description: Configure release roots, workspace discovery, version files, changelog generation, Git policy, and hooks.
 ---
 
-Verso reads `verso.toml` from the current directory by default. Every key is optional. When no
-config exists, Verso can use built-in defaults if the repository root contains `package.json`.
+# Configure the release boundary
 
-## Starter config
+Verso reads `verso.toml` from the current directory unless `--config <PATH>` is supplied. The
+directory containing that file becomes the release root: package patterns, manifests, changelog,
+hooks, and Git commands all resolve from there.
+
+Unknown tables and keys are rejected. Config paths must be relative, use forward slashes, and cannot
+contain `..` or escape the release root.
+
+## Complete default model
 
 ```toml
 [version]
@@ -36,75 +40,87 @@ push = "atomic"
 # before_version = "pnpm test"
 # after_version = "pnpm build"
 # before_commit = "pnpm lint"
-# after_push = "node scripts/notify-release.mts"
+# after_commit = "node scripts/verify-release.mjs"
+# before_tag = "pnpm pack"
+# after_tag = "node scripts/record-tag.mjs"
+# before_push = "pnpm check"
+# after_push = "node scripts/notify.mjs"
 
 [github_release]
 enabled = false
 ```
 
+Every table and key is optional. When the default config path is absent and a root package manifest
+exists, Verso uses these values without creating a file. An explicitly supplied missing config is
+always an error.
+
 ## Workspace discovery
 
-Most workspaces only need `workspaces.patterns`. Patterns are relative to the config directory and
-support `*`, `**`, `?`, character classes, braces, and `!` exclusions.
+When `workspaces.patterns` is empty, Verso first reads `packages` from `pnpm-workspace.yaml`, then the
+root manifest's `workspaces` field. If neither defines patterns, only the root package is used.
 
-When `patterns` is empty, Verso reads `pnpm-workspace.yaml` or the root manifest's `workspaces`
-field. If neither exists, it uses single-package mode.
+| Key             | Default | Behavior                                                                                         |
+| --------------- | ------- | ------------------------------------------------------------------------------------------------ |
+| `patterns`      | `[]`    | Include globs; supports `*`, `**`, `?`, character classes, braces, and leading `!` exclusions    |
+| `include_root`  | `true`  | Include the manifest selected by `version.root_package`                                          |
+| `ignore`        | `[]`    | Exclude matching paths; a plain segment such as `fixtures` excludes that directory name anywhere |
+| `use_gitignore` | `true`  | Honor root and nested `.gitignore` files while walking                                           |
 
-| Key             | Default | Purpose                                                   |
-| --------------- | ------- | --------------------------------------------------------- |
-| `patterns`      | `[]`    | Workspace globs used to discover package directories      |
-| `include_root`  | `true`  | Include the package selected by `version.root_package`    |
-| `ignore`        | `[]`    | Extra path or directory-name patterns to exclude          |
-| `use_gitignore` | `true`  | Honor root and nested `.gitignore` files during discovery |
+`node_modules` and `.git` are always excluded. If `include_root = false`, `patterns` must be explicit
+and nonempty; inferred workspace patterns are not accepted for that combination.
 
-Package discovery supports `package.json`, `package.json5`, `package.yaml`, and `package.yml`. If a
-directory contains more than one, Verso selects them in that order.
+Each matched directory contributes the first existing manifest in this order:
+`package.json`, `package.json5`, `package.yaml`, `package.yml`. Verso changes only the top-level
+`version` scalar and preserves the rest of the file's formatting.
 
-## Version files
+## Version sources
 
-`version.root_package` selects the manifest that provides the current version and participates in
-the update. Paths must stay within the config directory.
+| Key                           | Default        | Behavior                                                                                        |
+| ----------------------------- | -------------- | ----------------------------------------------------------------------------------------------- |
+| `root_package`                | `package.json` | Provides the current version and joins the update when `include_root` is enabled                |
+| `require_consistent_versions` | `true`         | Rejects discovered packages and configured Cargo packages whose versions differ                 |
+| `cargo_manifest_paths`        | `[]`           | Updates each manifest's `[package].version` and its nearest ancestor `Cargo.lock`, when present |
 
-Use `version.cargo_manifest_paths` when the release also needs to update Rust crates:
+When the default `root_package` does not exist, Verso may resolve another supported manifest in the
+release root. A custom `root_package` is used exactly as configured.
 
-```toml
-[version]
-cargo_manifest_paths = ["crates/cli/Cargo.toml"]
-```
+## Changelog
 
-Verso updates the nearest `Cargo.lock` when present. With `require_consistent_versions = true`, all
-discovered package and configured Cargo versions must match before the release starts.
+Set `changelog.enabled = true` to prepend a release entry to `changelog.infile`. Only the `angular`
+preset is accepted. Verso finds the highest reachable SemVer tag matching `git.tag_name`, reads
+non-merge commits after it, and classifies Conventional Commit subjects:
 
-## Changelog and Git
+- `fix` -> Bug Fixes
+- `feat` -> Features
+- `perf` -> Performance Improvements
+- `!` or a `BREAKING CHANGE:` footer -> BREAKING CHANGES
+- other conventional types -> a type-specific Other Changes section
+- non-conventional commits -> omitted
 
-Set `changelog.enabled = true` to generate and update the changelog during releases. Only the
-Angular changelog preset is currently supported. The default release commit and tag are:
+GitHub compare, commit, and issue links are added when the `origin` remote is a recognized GitHub
+SSH or HTTPS URL. An empty classified set produces `No classifiable changes.`
 
-```toml
-[git]
-commit_message = "chore(release): release v${version}"
-tag_name = "v${version}"
-push = "atomic"
-```
+## Git policy
 
-The tag template must contain `${version}`. `atomic` is the only push mode; the legacy
-`follow-tags` value is accepted as an alias and normalized to atomic behavior.
+| Key                      | Default                               | Behavior                                                                       |
+| ------------------------ | ------------------------------------- | ------------------------------------------------------------------------------ |
+| `require_clean_worktree` | `true`                                | Requires `git status --porcelain` to be empty before writes                    |
+| `commit_message`         | `chore(release): release v${version}` | Replaces every `${version}` placeholder with the target                        |
+| `tag_name`               | `v${version}`                         | Must contain `${version}` and render a valid Git ref name                      |
+| `push`                   | `atomic`                              | Pushes the current upstream branch and exact release tag in one atomic command |
 
-## Hooks
+With `require_clean_worktree = false`, unrelated unstaged files are allowed, but the index and every
+release file must still be clean. `follow-tags` is accepted only as a legacy alias and is normalized
+to `atomic`; no non-atomic push mode exists.
 
-Hooks run between release stages and use the project's shell environment:
+## Hooks are trusted shell commands
 
-| Hook                               | Runs                                      |
-| ---------------------------------- | ----------------------------------------- |
-| `before_version` / `after_version` | Around version and changelog file updates |
-| `before_commit` / `after_commit`   | Around release commit creation            |
-| `before_tag` / `after_tag`         | Around tag creation                       |
-| `before_push` / `after_push`       | Around the atomic push                    |
+Hooks run from the release root through `sh -c` on macOS/Linux and `cmd /C` on Windows. Empty strings
+are treated as disabled. A nonzero exit stops the release at that stage.
 
-Use hooks for repository-specific checks, builds, or notifications. Verso stops on a failing hook
-and applies the rollback behavior for that stage.
+Hook commands are printed by dry-run, so never place secrets directly in the config. Pass sensitive
+values through the process environment and keep `verso.toml` reviewable. See
+[Release workflow](/release-workflow/) for the cleanup behavior of each hook boundary.
 
-## Unsupported options
-
-`github_release.enabled = true` is rejected. Create the GitHub release in CI after the release tag
+`github_release.enabled = true` is currently rejected. Create GitHub Releases from CI after the tag
 has been pushed.

@@ -1,24 +1,30 @@
 ---
-title: Getting started
-description: Install Verso, initialize a project, validate it, and preview the first release.
-order: 2
+description: Install Verso, initialize discovery, validate the repository, and preview the exact release plan.
 ---
+
+# Get ready for the first release
 
 ## Requirements
 
-Verso is distributed as an npm package with native binaries for supported platforms. The repository
-that you release needs Git, a package manifest, and an upstream branch. Node.js 22.18 or newer is
-required by the npm package.
+The npm wrapper requires Node.js 22.18 or newer and installs one native optional dependency for the
+current platform.
 
-## Install
+| Operating system | CPU          |
+| ---------------- | ------------ |
+| macOS            | arm64 or x64 |
+| Linux (GNU)      | arm64 or x64 |
+| Windows          | x64          |
 
-Add Verso to the root of the workspace:
+The target repository also needs Git, at least one supported package manifest, and a named branch
+with an upstream. A real release is rejected when the local branch is behind that upstream.
+
+## Install the wrapper
+
+Add Verso at the workspace root and expose it through a script:
 
 ```sh
 pnpm add -D @amamo/verso
 ```
-
-Then expose it through the root manifest:
 
 ```json
 {
@@ -28,62 +34,79 @@ Then expose it through the root manifest:
 }
 ```
 
-## Initialize the config
+Use `pnpm exec verso ...` for direct commands, or `pnpm release -- ...` through the script. The npm
+package resolves the platform package, repairs the executable bit on macOS and Linux when needed,
+then forwards the CLI exit status and signals.
 
-Run the initializer from the repository root:
+## Decide whether a config is needed
 
-```sh
-pnpm release -- init
-```
+For a single package, a root `package.json`, `package.json5`, `package.yaml`, or `package.yml` is
+enough. With no explicit `--config`, Verso uses built-in single-package defaults.
 
-The initializer writes `verso.toml` and detects `packages/*` when that workspace shape exists.
-Use `--single` or `--workspace` to choose explicitly, and `--force` only when you intend to replace
-an existing config.
-
-## Validate before releasing
-
-`doctor` checks config parsing, package discovery, version consistency, changelog and Cargo paths,
-plus Git upstream readiness:
+For a workspace, generate `verso.toml`:
 
 ```sh
-pnpm release -- doctor
+pnpm exec verso init
 ```
 
-For CI or other automation, use structured output:
+The initializer selects workspace mode only when it finds `packages/*/package.json`; otherwise it
+creates a single-package config. Override that narrow detection when necessary:
 
 ```sh
-pnpm release -- doctor --json
+pnpm exec verso init --workspace
+pnpm exec verso init --single
 ```
 
-## Preview the first release
+`init` refuses to replace an existing file. Use `--force` only when replacing it is intentional.
 
-Always inspect the plan before the first real run:
+## Inspect release readiness
 
 ```sh
-pnpm release -- --dry-run
+pnpm exec verso doctor
 ```
 
-The preview shows discovered packages, the resolved current and target versions, files that would
-change, changelog content, hooks, and Git actions. It does not write files or run mutating Git
-commands.
+`doctor` checks config loading, package discovery, the current version, shared package and Cargo
+versions, the changelog parent directory, and the named branch's upstream. It returns a nonzero exit
+status when any check fails. Automation can consume the same checks as JSON:
 
-When the plan is correct, choose a version interactively:
+```sh
+pnpm exec verso doctor --json
+```
+
+## Preview one exact version
+
+Start with an explicit target so the preview is reproducible:
+
+```sh
+pnpm exec verso --dry-run --version 1.4.0
+```
+
+The plan lists version files, the optional changelog, configured hooks, warnings, commit and tag
+templates, and the exact shape of the Git commands. It performs no writes, hooks, commits, tags, or
+pushes. JSON output is available only in dry-run mode:
+
+```sh
+pnpm exec verso --dry-run --version 1.4.0 --json
+```
+
+<Callout variant="warning" title="Hook commands appear in previews">
+  Do not embed tokens or passwords in `verso.toml`. Dry-run output deliberately includes each hook
+  command so the release plan is inspectable.
+</Callout>
+
+## Run the release
+
+Interactive mode offers stable and prerelease choices, then asks before files, commit, tag, and push:
 
 ```sh
 pnpm release
 ```
 
-Or pass an exact semantic version for automation:
+Automation should provide the exact SemVer and opt into all confirmations:
 
 ```sh
 pnpm release -- --version 1.4.0 --yes
 ```
 
-`--yes` skips confirmation; it does not choose a version. Without `--version`, version selection is
-still interactive.
-
-## Next steps
-
-- Adjust package discovery and release hooks in [Configuration](/configuration/).
-- Review every command and option in the [CLI reference](/cli-reference/).
-- Learn what is rolled back in [Release workflow](/release-workflow/).
+`--yes` skips confirmations; it never chooses a version. Read [Release workflow](/release-workflow/)
+before automating a repository with hooks or a relaxed worktree policy.

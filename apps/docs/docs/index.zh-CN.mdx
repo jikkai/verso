@@ -1,45 +1,60 @@
 ---
-title: Verso
-description: 让 JavaScript workspace 中的所有软件包使用同一个版本发布。
-order: 1
+description: 用可检查的计划和原子 Git 交接，发布共用同一版本的 JavaScript workspace。
 ---
 
-Verso 会更新 package manifest，生成 Angular 风格的 conventional changelog，创建 release commit
-和 tag，最后以原子操作推送当前上游分支和 release tag。
+# 把一个 workspace 作为一个版本发布
+
+Verso 是面向统一版本仓库的原生发布 CLI。它会发现需要发布的 manifest，写入同一个目标版本，按需在
+changelog 顶部加入 Conventional Commit 记录，创建 annotated tag，再原子推送当前上游分支和这个准确的 tag。
 
 ```sh
 pnpm add -D @amamo/verso
+pnpm exec verso doctor
+pnpm exec verso --dry-run
 ```
 
-<CardGrid>
-  <Card title="开始一次发布" href="/zh-CN/getting-started/">
-    安装 Verso、生成配置、检查仓库，并在真正写入前预览发布计划。
-  </Card>
-  <Card title="配置 workspace" href="/zh-CN/configuration/">
-    控制软件包发现、版本文件、changelog、Git 行为和发布钩子。
-  </Card>
-  <Card title="理解安全模型" href="/zh-CN/release-workflow/">
-    了解 Verso 会写入什么、何时回滚，以及推送失败后会保留什么。
-  </Card>
-</CardGrid>
+<Callout variant="tip" title="刻意保持较小的发布边界">
+  Verso 负责准备并记录一次发布，不会发布 npm 包、创建 GitHub Release 或取代 CI。项目检查应放进
+  hook，凭据和发布行为则交给由 tag 触发的 CI。
+</Callout>
 
-## 刻意保持边界清晰
+## Verso 的契约
 
-Verso 面向所有 JavaScript 软件包共用同一版本号的仓库。它负责版本文件、changelog、commit、tag
-和原子推送这一段发布边界，不接管软件包发布、CI 编排或项目自己的构建步骤。
+```text
+verso.toml + package manifest + Git 历史
+  -> 校验配置、版本、工作区、分支和 upstream
+  -> 选择一个 SemVer 目标版本
+  -> 更新 package manifest、配置的 Cargo 文件和 changelog
+  -> 创建 release commit 和 annotated tag
+  -> git push --atomic <upstream> <branch> <exact-tag>
+```
 
-| 阶段 | Verso 负责                                                     | 项目负责                   |
-| ---- | -------------------------------------------------------------- | -------------------------- |
-| 检查 | 校验配置、软件包版本、Git 状态和上游分支                       | 通过钩子运行项目自己的检查 |
-| 准备 | 更新 manifest 和配置的 Cargo 文件；在 changelog 顶部写入新版本 | 按配置执行构建或测试       |
-| 记录 | 创建 release commit 和准确的版本 tag                           | 在 CI 中发布软件包         |
-| 推送 | 原子推送当前上游分支和 tag                                     | 响应新推送的 tag           |
+| Verso 负责                                    | 你的仓库负责                        |
+| --------------------------------------------- | ----------------------------------- |
+| 发现 package 并检查统一版本                   | 通过 hook 运行测试、构建和策略检查  |
+| 更新 JSON、JSON5、YAML、Cargo 和 changelog    | 管理 registry 凭据并发布 package    |
+| 创建 release commit、annotated tag 和原子推送 | 响应 tag，生成产物和 GitHub Release |
+| dry-run 和按阶段执行的本地回滚                | 远端推送成功后的恢复决策            |
 
-## 安全优先
+## 适用场景
 
-- `verso --dry-run` 只生成发布计划，不写文件，也不执行会修改状态的 Git 命令。
-- 本地步骤失败时会回滚发布文件，并取消 Verso 自己的暂存内容。
-- 分支和 tag 通过 `git push --atomic` 一起推送。
-- 推送失败时保留本地 commit 和 tag，避免隐藏已经完成的工作。
+当所有可发布 package 共用同一个版本和 Git tag 时，Verso 很合适。单包项目也受支持；根目录存在受支持的
+package manifest 时，可以不创建配置文件。
 
-接着阅读[快速开始](/zh-CN/getting-started/)，或直接查看完整的 [CLI 参考](/zh-CN/cli-reference/)。
+如果各 package 独立版本、发布 registry 必须属于本地事务，或远端不支持原子推送，应选择其他发布模型。
+
+## 安全模型
+
+- `verso doctor` 在不开始发布的情况下检查仓库。
+- `verso --dry-run` 会列出文件、hook 和 Git 命令，但不写入文件，也不执行会修改 Git 的命令。
+- 真正发布要求当前位于有 upstream 的具名分支，且本地分支不能落后于 upstream。
+- 默认要求工作区干净；宽松模式仍要求 index 和所有 release 文件干净。
+- 推送前的执行错误会触发按阶段清理；用户主动取消时，会有意保留已经完成的阶段，避免静默丢弃可见工作。
+- 推送失败会保留本地 commit 和 tag；`after_push` hook 失败时，远端已经接收两个 ref。
+
+## 继续阅读
+
+- [快速开始](/zh-CN/getting-started/)：安装 Verso 并预览第一次发布。
+- [配置参考](/zh-CN/configuration/)：了解所有配置项和发现规则。
+- [CLI 参考](/zh-CN/cli-reference/)：查看命令、交互提示、JSON 输出和退出行为。
+- [发布流程](/zh-CN/release-workflow/)：理解确认点、回滚边界和 CI 交接。

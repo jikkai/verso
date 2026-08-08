@@ -1,23 +1,29 @@
 ---
-title: 快速开始
-description: 安装 Verso、初始化项目、检查仓库，并预览第一次发布。
-order: 2
+description: 安装 Verso、初始化发现规则、检查仓库，并预览准确的发布计划。
 ---
+
+# 准备第一次发布
 
 ## 运行条件
 
-Verso 通过 npm 软件包分发，并为支持的平台提供原生二进制文件。待发布仓库需要 Git、package
-manifest 和已配置的上游分支。npm 软件包要求 Node.js 22.18 或更高版本。
+npm wrapper 要求 Node.js 22.18 或更高版本，并会为当前平台安装一个原生 optional dependency。
 
-## 安装
+| 操作系统     | CPU          |
+| ------------ | ------------ |
+| macOS        | arm64 或 x64 |
+| Linux（GNU） | arm64 或 x64 |
+| Windows      | x64          |
 
-在 workspace 根目录添加 Verso：
+待发布仓库还需要 Git、至少一个受支持的 package manifest，以及配置了 upstream 的具名分支。真正发布时，
+如果本地分支落后于 upstream，Verso 会拒绝继续。
+
+## 安装 wrapper
+
+在 workspace 根目录添加 Verso，并通过 script 暴露命令：
 
 ```sh
 pnpm add -D @amamo/verso
 ```
-
-然后在根 `package.json` 中增加脚本：
 
 ```json
 {
@@ -27,58 +33,74 @@ pnpm add -D @amamo/verso
 }
 ```
 
-## 初始化配置
+直接调用可使用 `pnpm exec verso ...`，通过 script 则使用 `pnpm release -- ...`。npm package 会解析
+当前平台的 package，在 macOS 和 Linux 上按需修复 executable bit，再转发 CLI 的退出状态和信号。
 
-在仓库根目录运行：
+## 判断是否需要配置文件
 
-```sh
-pnpm release -- init
-```
+单包项目只需要根目录存在 `package.json`、`package.json5`、`package.yaml` 或 `package.yml`。没有显式传入
+`--config` 时，Verso 会采用内置的单包默认值。
 
-初始化器会写入 `verso.toml`；仓库存在 `packages/*` 时会自动识别这种 workspace 结构。可以用
-`--single` 或 `--workspace` 明确指定模式，只在确实需要覆盖已有配置时使用 `--force`。
-
-## 发布前检查
-
-`doctor` 会校验配置解析、软件包发现、版本一致性、changelog 和 Cargo 路径，以及 Git 上游状态：
+Workspace 项目可以生成 `verso.toml`：
 
 ```sh
-pnpm release -- doctor
+pnpm exec verso init
 ```
 
-CI 或其他自动化场景可以使用结构化输出：
+初始化器只会通过 `packages/*/package.json` 判断 workspace 模式；其他目录结构应显式指定：
 
 ```sh
-pnpm release -- doctor --json
+pnpm exec verso init --workspace
+pnpm exec verso init --single
 ```
 
-## 预览第一次发布
+`init` 默认拒绝覆盖已有文件。只有确实要替换配置时才使用 `--force`。
 
-第一次真正发布前，先检查完整计划：
+## 检查发布条件
 
 ```sh
-pnpm release -- --dry-run
+pnpm exec verso doctor
 ```
 
-预览会列出发现的软件包、当前版本与目标版本、计划修改的文件、changelog 内容、钩子和 Git 操作。
-它不会写文件，也不会执行会修改仓库状态的 Git 命令。
+`doctor` 会检查配置加载、package 发现、当前版本、共享的 package 和 Cargo 版本、changelog 父目录，
+以及具名分支的 upstream。任一检查失败都会返回非零退出状态。自动化可以读取同一组检查的 JSON：
 
-计划无误后，可以交互式选择版本：
+```sh
+pnpm exec verso doctor --json
+```
+
+## 预览一个准确版本
+
+先指定目标版本，让预览可以复现：
+
+```sh
+pnpm exec verso --dry-run --version 1.4.0
+```
+
+计划会列出版本文件、可选的 changelog、已配置的 hook、警告、commit 与 tag 模板，以及 Git 命令的准确形态。
+它不会写文件、运行 hook、创建 commit 或 tag，也不会推送。只有 dry-run 模式支持 JSON：
+
+```sh
+pnpm exec verso --dry-run --version 1.4.0 --json
+```
+
+<Callout variant="warning" title="预览会显示 hook 命令">
+  不要把 token 或密码写进 `verso.toml`。为了让计划可检查，dry-run 会有意输出每条 hook 命令。
+</Callout>
+
+## 执行发布
+
+交互模式会提供 stable 和 prerelease 选项，并在写文件、提交、打 tag 和推送前分别确认：
 
 ```sh
 pnpm release
 ```
 
-自动化场景也可以直接传入准确的语义化版本：
+自动化应给出准确的 SemVer，并明确跳过全部确认：
 
 ```sh
 pnpm release -- --version 1.4.0 --yes
 ```
 
-`--yes` 只跳过确认，不会替你选择版本。没有 `--version` 时仍会进入交互式版本选择。
-
-## 继续阅读
-
-- 在[配置参考](/zh-CN/configuration/)中调整软件包发现和发布钩子。
-- 在 [CLI 参考](/zh-CN/cli-reference/)中查看所有命令和参数。
-- 在[发布流程](/zh-CN/release-workflow/)中了解失败时会回滚什么。
+`--yes` 只跳过确认，永远不会选择版本。含有 hook 或宽松工作区策略的仓库，在自动化前应先阅读
+[发布流程](/zh-CN/release-workflow/)。

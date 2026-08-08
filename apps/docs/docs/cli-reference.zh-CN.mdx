@@ -1,76 +1,98 @@
 ---
-title: CLI 参考
-description: Verso 命令行提供的命令和参数。
-order: 4
+description: Verso CLI 的命令语法、版本选择、结构化输出和退出行为。
 ---
 
-## 发布命令
+# CLI 参考
 
-不带子命令运行 `verso` 会开始发布：
+## `verso [OPTIONS]`
 
-```sh
-verso [OPTIONS]
-```
+不带子命令时，会规划或执行一次发布。
 
-| 参数                   | 默认值       | 说明                                                   |
-| ---------------------- | ------------ | ------------------------------------------------------ |
-| `--dry-run`            | `false`      | 预览发布，不写文件，也不执行会修改状态的 Git 命令      |
-| `--json`               | `false`      | 以 JSON 输出 dry-run 结果；必须和 `--dry-run` 一起使用 |
-| `--version <SEMVER>`   | 无           | 使用准确的目标版本，跳过交互式选择                     |
-| `--config <PATH>`      | `verso.toml` | 读取其他配置文件                                       |
-| `--yes`                | `false`      | 跳过确认；不会替你选择版本                             |
-| `-V`、`--tool-version` | 无           | 打印 Verso CLI 版本并退出                              |
-| `--help`               | 无           | 打印命令帮助                                           |
-
-常用示例：
+| 参数                   | 默认值       | 含义                                                       |
+| ---------------------- | ------------ | ---------------------------------------------------------- |
+| `--dry-run`            | `false`      | 输出计划，不写文件、不运行 hook，也不执行会修改 Git 的命令 |
+| `--json`               | `false`      | 以 JSON 输出 dry-run；没有 `--dry-run` 时会被拒绝          |
+| `--version <SEMVER>`   | 交互选择     | 使用一个准确且有效的 SemVer 目标版本                       |
+| `--config <PATH>`      | `verso.toml` | 使用其他配置；其父目录成为发布根目录                       |
+| `--yes`                | `false`      | 接受发布确认；不会选择版本                                 |
+| `-V`、`--tool-version` | -            | 输出已安装 wrapper / 原生 CLI 版本并退出                   |
+| `--help`               | -            | 输出命令帮助                                               |
 
 ```sh
 verso --dry-run
-verso --dry-run --json
-verso --version 0.26.0
-verso --version 0.26.0-beta.1 --yes
-verso --config config/release.toml
+verso --dry-run --version 2.0.0-rc.0 --json
+verso --config config/verso.toml doctor --json
+verso --version 2.0.0 --yes
 verso --tool-version
 ```
 
-没有 `--version` 时，交互式菜单会提供 patch、minor、major、alpha、beta、rc 和自定义语义化版本。
-当前版本是 prerelease 时，还会提供对应的 stable 版本。选择 prerelease channel 后会继续选择 base version。
+### 交互式版本选择
 
-stdin 或 stdout 不是终端时，Verso 会保留纯文本提示。脚本输入可以按名称选择，例如先输入 `beta`，
-再输入 `minor`。
+没有 `--version` 时，Verso 会提供 patch、minor、major、alpha、beta、rc 和自定义 SemVer。当前版本
+是 prerelease 时，还会提供对应的 stable 版本。
+
+选择 alpha、beta 或 rc 后，需要继续选择 patch、minor、major 或自定义 base。同一个 base 上重复选择同一
+channel 会递增数字后缀；切换 channel 或 base 会从 `.0` 开始。例如从 `1.3.0-beta.0` 选择 beta + minor，
+结果是 `1.3.0-beta.1`。
+
+准确目标版本可以等于或低于当前版本，但会额外显示一个默认否的确认；`--yes` 会跳过这个确认。
+
+stdin 或 stdout 不是终端时，会使用同一套纯文本提示。输入既可以是编号，也可以是关键字，例如先输入
+`beta`，再输入 `minor`。
+
+### Dry-run JSON
+
+JSON 对象包含 `currentVersion`、`targetVersion`、`packageFiles`、`extraVersionFiles`、
+`versionFiles`、`changelogFile`、`commitMessage`、`tagName`、`hooks`、`warnings` 和
+`gitCommands`。路径相对于发布根目录；Git 命令数组只是预览，upstream 使用占位符，不会访问远端。
 
 ## `verso init`
 
-创建初始 `verso.toml`：
-
 ```sh
-verso init [--single | --workspace] [--force]
+verso [--config <PATH>] init [--single | --workspace] [--force]
 ```
 
-| 参数          | 说明                |
-| ------------- | ------------------- |
-| `--single`    | 生成单包配置        |
-| `--workspace` | 生成 workspace 配置 |
-| `--force`     | 覆盖已有配置        |
+| 参数          | 含义                                 |
+| ------------- | ------------------------------------ |
+| `--single`    | 写入单包初始配置                     |
+| `--workspace` | 写入 `packages/*` workspace 初始配置 |
+| `--force`     | 替换已有配置文件                     |
 
-未明确指定模式时，命令会检测 `packages/*` workspace；没有这种目录结构时生成单包配置。
+没有指定模式时，只通过 `packages/*/package.json` 检测 workspace。自定义配置路径所需的父目录会按需创建。
 
 ## `verso doctor`
 
-在不开始发布的情况下检查仓库是否就绪：
-
 ```sh
-verso doctor [--json]
+verso [--config <PATH>] doctor [--json]
 ```
 
-检查范围包括配置解析、软件包发现、版本一致性、changelog 和 Cargo 路径，以及当前分支的 Git 上游状态。
-`--json` 会生成适合 CI 使用的结构化输出。
+报告会检查发布根目录解析、配置、已发现 package、当前及统一版本、配置的 Cargo 版本、changelog 可写性和
+Git upstream。文本输出使用 `PASS` / `FAIL`；JSON 结构如下：
 
-## Package manager 脚本
+```json
+{
+  "ok": true,
+  "checks": [{ "name": "config", "status": "pass", "message": "..." }],
+  "packageCount": 3,
+  "currentVersion": "1.4.0"
+}
+```
 
-Verso 作为 dev dependency 安装时，需要保留 package manager 的参数分隔符：
+即使 JSON 成功写出，只要 doctor 报告失败，进程仍以状态 1 退出。
+
+## Package manager 参数转发
+
+使用 `pnpm exec` 不需要参数分隔符：
+
+```sh
+pnpm exec verso --dry-run
+```
+
+如果 `package.json` 定义了 `"release": "verso"`，用 `--` 转发参数：
 
 ```sh
 pnpm release -- --dry-run
 pnpm release -- doctor --json
 ```
+
+Verso 成功时以 0 退出；校验、取消、hook、Git 或启动错误以 1 退出。npm wrapper 会转发原生进程的退出码和信号。

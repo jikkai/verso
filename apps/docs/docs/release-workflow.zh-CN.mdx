@@ -1,55 +1,90 @@
 ---
-title: 发布流程
-description: 了解 Verso 修改哪些内容、各阶段的顺序，以及某个阶段失败后会发生什么。
-order: 5
+description: 理解 Verso 的校验、确认、修改、回滚、原子推送和 CI 交接边界。
 ---
 
-## 发布边界
+# 发布流程
 
-Verso 按固定顺序处理仓库的发布元数据：
+Verso 由一系列明确的本地检查点和最后一次远端事务组成。与其把整个命令理解成全有或全无，不如先确认
+执行停在哪个边界。
 
-1. 读取 `verso.toml` 并发现 manifest。
-2. 从 `--version` 或交互式版本选择器确定目标版本。
-3. 更新 package manifest、配置的 Cargo manifest 和 lockfile，以及 changelog。
-4. 创建 release commit。
-5. 创建准确的 release tag。
-6. 原子推送当前上游分支和 tag。
+## 写入之前
 
-钩子在这些阶段之间执行。`--dry-run` 会跳过所有写入、会修改状态的 Git 命令，以及可能改变项目的钩子。
+Verso 会加载并检查项目、确定目标版本、要求当前位于有可用 upstream 的具名分支、拒绝落后分支、检查
+工作区策略，并拒绝已经存在的目标 tag。
 
-## 写入文件之前
+默认策略要求整个工作区干净。设置 `git.require_clean_worktree = false` 后，可以保留无关的未暂存修改，
+但 Git index 以及本次发布涉及的所有 package manifest、Cargo manifest、Cargo lockfile 和 changelog
+仍必须干净。
 
-Verso 默认要求工作区干净，避免发布文件和无关修改混在一起。
-
-设置 `git.require_clean_worktree = false` 后，可以保留无关的未暂存修改，但 Git index、release
-manifest、Cargo lockfile 和 changelog 仍必须干净。Verso 不会覆盖或提交这些文件中已有的工作。
-
-## 本地回滚
-
-如果文件已经修改，但推送成功前的某个本地阶段失败，Verso 会还原发布文件，并只移除自己加入的暂存内容。
-目标是让仓库回到发布前的状态，同时保留无关工作。
-
-项目钩子失败也遵循相同的阶段化回滚。失败的钩子会终止发布，后续 commit、tag 或 push 都不会运行。
-
-## 原子推送
-
-当前上游分支和准确的 release tag 会一起推送。远端要么同时接收两个 ref，要么都不接收，避免出现没有
-commit 的远端 tag，或没有 tag 的 release commit。
+## 固定顺序
 
 ```text
-本地分支 + 本地 tag
-          |
-          | git push --atomic
-          v
-远端分支 + 远端 tag
+检查 -> 选择版本 -> 确认文件
+  -> before_version -> 写文件 -> after_version
+  -> 确认提交 -> before_commit -> git add/commit -> after_commit
+  -> 确认 tag -> before_tag -> annotated tag -> after_tag
+  -> 确认推送 -> before_push -> 原子推送 -> after_push
 ```
 
-如果推送本身失败，Verso 会保留本地 release commit 和 tag。此时本地发布状态完整且可恢复；自动删除
-反而会隐藏有用状态，还可能破坏后续处理。
+四个阶段确认默认都是“是”。目标版本不大于当前版本时，会更早出现一个默认“否”的确认。`--yes` 会接受
+所有确认。
+
+## 执行错误与清理
+
+清理是 best-effort，并且只针对 Verso 修改过的路径；它不会使用 hard reset。
+
+| 失败位置                                                | 最终本地状态                                                             |
+| ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 配置、检查、版本选择、`before_version`                  | 尚未写入 release 文件                                                    |
+| 写文件、`after_version`、`before_commit`、add 或 commit | 恢复已快照的文件，并取消 Verso 路径的暂存                                |
+| `after_commit`、`before_tag` 或创建 tag                 | `HEAD` 仍是预期 release commit 时，对它 soft reset，再恢复文件并取消暂存 |
+| `after_tag` 或 `before_push`                            | 删除新 tag，再回滚 release commit 和文件                                 |
+| 原子推送                                                | 保留本地 release commit 和 tag；远端要么同时接收两个 ref，要么都不接收   |
+| `after_push`                                            | 保留本地和远端 release 状态；推送已经成功                                |
+
+如果 hook 意外移动 `HEAD`，Verso 会避免 reset 未知 commit，并报告清理不完整。恢复、取消暂存、reset 或
+删除 tag 的任何失败都会附加在原始错误后，方便手动恢复。
+
+## 取消会保留已完成的工作
+
+在确认处回答“否”会以状态 1 退出，但不会进入执行错误的回滚路径：
+
+| 取消位置     | 有意保留的状态                           |
+| ------------ | ---------------------------------------- |
+| 修改文件之前 | 没有变化                                 |
+| commit 之前  | 更新后的 release 文件保留为未暂存状态    |
+| tag 之前     | 保留 release commit，不创建 tag          |
+| push 之前    | 本地保留 release commit 和 annotated tag |
+
+这样每个检查点都可以检查。手动继续前，应确认 `HEAD`、工作区和 tag 都符合目标状态。
+
+## 原子推送细节
+
+Verso 会解析当前分支配置的 remote 和 merge ref，只推送下面两个 ref：
+
+```text
+HEAD:refs/heads/<upstream-branch>
+refs/tags/<release-tag>:refs/tags/<release-tag>
+```
+
+命令使用 `git push --atomic`，不会包含其他本地 tag。远端必须支持原子推送。如果事务被拒绝，先检查保留
+的本地 commit 和 tag，修复远端问题后再重试这两个准确 ref。
+
+## Hook 与信任边界
+
+Hook 是任意项目 shell 命令。推送前的失败会使用上面的清理矩阵；`after_push` 是通知或后续处理边界，
+无法撤销远端 ref。应尽量把破坏性操作或需要凭据的发布行为留在 CI，而不是本地 hook。
+
+`--dry-run` 不会执行 hook，但会按阶段输出名称和命令，让审查者了解真正发布时将运行什么。
 
 ## 交给 CI
 
-Verso 在分支和 tag 推送后结束。由 tag 触发的 CI 可以继续构建二进制文件、发布软件包、附加 provenance，
-并创建 GitHub Release。把这些工作留在 CLI 之外，可以让凭据和平台发布策略继续由 CI 管理。
+推送成功后，由 tag 触发的 CI 可以构建平台产物、证明二进制来源、发布 npm package、创建或更新 GitHub
+Release，并部署文档。Verso 本身不保存 registry 凭据，也不执行这些动作。
 
-接入自动化前，先在目标仓库运行 `verso doctor` 和 `verso --dry-run --json`，确认软件包发现和发布计划。
+开启自动化前，在目标仓库保留下面两项检查结果：
+
+```sh
+verso doctor --json
+verso --dry-run --version <next-version> --json
+```

@@ -1,48 +1,61 @@
-# Security
+# Security policy
 
-Verso automates local release steps, edits package manifests, writes changelogs,
-and runs git commands. Please report security concerns privately before opening
-a public issue.
+Verso edits release files, executes configured shell hooks, creates Git objects, and pushes refs.
+Report vulnerabilities privately so a fix can be coordinated before public disclosure.
 
-## Supported Versions
+## Supported versions
 
-Security fixes are shipped in the latest published version of
-`@amamo/verso`. Pre-release builds may receive fixes when they are the
-active release line.
+Security fixes are shipped in the latest published `@amamo/verso` version. An active prerelease line
+may receive a fix when it is the only affected line still under development.
 
-## Security Scope
+## Trust model
 
-Verso is a release automation tool. Please treat these issues as security
-concerns:
+Treat the repository and its release configuration as trusted input:
 
-- arbitrary command execution through release configuration, changelog content,
-  package metadata, or workspace discovery
-- path traversal or writes outside the configured project directory
-- behavior that exposes npm tokens, GitHub tokens, or other release credentials
-- tampering, substitution, or misleading provenance for release artifacts
-- npm wrapper or platform package behavior that launches an unexpected binary
+- Every configured hook is executed through `sh -c` on macOS/Linux or `cmd /C` on Windows.
+- Dry-run text and JSON include hook commands verbatim. Never embed credentials in `verso.toml`;
+  pass them through the environment and control where preview output is stored.
+- Package manifests and Conventional Commit subjects are parsed and may be reproduced in diagnostics
+  or changelog output. Do not store secrets in release metadata.
+- The npm wrapper executes the binary supplied by the platform-specific optional package. Install
+  `@amamo/verso` from the expected registry and retain the lockfile.
 
-General release bugs, unsupported platforms, missing changelog entries, and
-documentation mistakes can use the public issue templates unless they also
-create one of the risks above.
+`--dry-run` prevents Verso's own writes, hooks, commits, tags, and pushes. It is a planning tool, not a
+sandbox for untrusted repository content.
 
-## Reporting A Vulnerability
+## Git and rollback limits
 
-Email `白熱 <sonne@asaki.me>` with the subject prefix `[verso security]`.
-Do not open a public issue for suspected vulnerabilities.
+Atomic push means the remote accepts the branch and exact release tag together or accepts neither.
+It does not make local hooks transactional, and it cannot undo an `after_push` failure.
 
-Please include:
+Rollback before push is best-effort. Verso snapshots release files, unstages only its paths, uses a
+soft reset for the expected release commit, and deletes its new tag where appropriate. If a hook
+moves `HEAD` or a filesystem/Git cleanup fails, Verso reports partial cleanup rather than applying a
+destructive reset. User cancellation keeps completed checkpoints by design.
 
-- the affected Verso version
-- the operating system and package manager version
-- a minimal reproduction or command transcript
-- whether the issue can modify files, run commands, leak data, or publish tags
-- whether the issue affects published npm packages, GitHub Release assets, or
-  generated provenance
+## Reportable security issues
 
-## Coordinated Disclosure
+Examples include:
 
-We aim to acknowledge reports within five business days, investigate the impact,
-and coordinate a fix before sharing details publicly. If the report is accepted,
-we will agree on a disclosure timeline with the reporter and credit them unless
-they prefer to stay anonymous.
+- executing an unexpected binary or command without an explicitly configured hook
+- escaping the release root to read or write another path
+- including unrelated staged work in a release commit
+- pushing a ref other than the configured upstream branch and exact release tag
+- leaking credentials through diagnostics, logs, release artifacts, or publication helpers
+- substitution or misleading provenance of native binaries or npm packages
+- a rollback operation that destroys pre-existing user work
+
+Ordinary release bugs, unsupported platforms, and documentation mistakes may use public issues unless
+they also create one of these risks.
+
+## Private reporting
+
+Email `白熱 <sonne@asaki.me>` with the subject prefix `[verso security]`. Do not open a public issue
+for a suspected vulnerability.
+
+Include the affected version, OS and CPU, Node.js and package-manager versions, a minimal reproduction,
+the state before and after the command, and whether the issue can execute commands, change files or
+refs, leak data, or publish artifacts.
+
+We aim to acknowledge a report within five business days, investigate impact, and agree on a
+disclosure timeline. Accepted reporters are credited unless they prefer otherwise.

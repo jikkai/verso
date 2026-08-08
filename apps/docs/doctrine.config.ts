@@ -1,10 +1,15 @@
 import { defineConfig } from "@amamo/doctrine";
 
 export default defineConfig({
-  description: {
-    en: "Verso documentation for versioning and releasing JavaScript workspaces.",
-    "zh-CN": "Verso 文档，介绍如何统一管理与发布 JavaScript workspace。",
+  copyright: {
+    en: "Released under the MIT License.",
+    "zh-CN": "基于 MIT License 发布。",
   },
+  description: {
+    en: "Version and release JavaScript workspaces as one atomic unit.",
+    "zh-CN": "把 JavaScript workspace 作为一个原子单元统一版本和发布。",
+  },
+  githubUrl: "https://github.com/jikkai/verso",
   locales: {
     default: "en",
     labels: { en: "English", "zh-CN": "简体中文" },
