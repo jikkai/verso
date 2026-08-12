@@ -31,10 +31,10 @@
   },
   "devDependencies": {
     "@amamo/oxlint-config": "1.0.0",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.2.0",
     "oxfmt": "^0.62.0",
     "oxlint": "^1.77.0",
-    "oxlint-tailwindcss": "^1.7.0",
+    "oxlint-tailwindcss": "^1.7.1",
     "simple-git-hooks": "^2.13.1",
     "typescript": "^7.0.2"
   },

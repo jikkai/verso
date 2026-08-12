@@ -10,10 +10,10 @@ importers:
     devDependencies:
       '@amamo/oxlint-config':
         specifier: 1.0.0
-        version: 1.0.0(oxfmt@0.62.0)(oxlint-tailwindcss@1.7.0)(oxlint@1.77.0)
+        version: 1.0.0(oxfmt@0.62.0)(oxlint-tailwindcss@1.7.1)(oxlint@1.77.0)
       '@types/node':
-        specifier: ^26.1.2
-        version: 26.1.2
+        specifier: ^26.2.0
+        version: 26.2.0
       oxfmt:
         specifier: ^0.62.0
         version: 0.62.0
@@ -21,8 +21,8 @@ importers:
         specifier: ^1.77.0
         version: 1.77.0
       oxlint-tailwindcss:
-        specifier: ^1.7.0
-        version: 1.7.0
+        specifier: ^1.7.1
+        version: 1.7.1
       simple-git-hooks:
         specifier: ^2.13.1
         version: 2.13.1
@@ -34,13 +34,13 @@ importers:
     dependencies:
       '@amamo/doctrine':
         specifier: 0.2.1
-        version: 0.2.1(@types/node@26.1.2)(@types/react@19.2.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
+        version: 0.2.1(@types/node@26.2.0)(@types/react@19.2.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
       '@base-ui/react':
         specifier: 1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lucide-react:
-        specifier: 1.29.0
-        version: 1.29.0(react@19.2.8)
+        specifier: 1.31.0
+        version: 1.31.0(react@19.2.8)
       pagefind:
         specifier: 1.5.2
         version: 1.5.2
@@ -52,8 +52,8 @@ importers:
         version: 19.2.8(react@19.2.8)
     devDependencies:
       '@types/node':
-        specifier: ^26.1.2
-        version: 26.1.2
+        specifier: ^26.2.0
+        version: 26.2.0
       '@types/react':
         specifier: 19.2.18
         version: 19.2.18
@@ -67,8 +67,8 @@ importers:
   packages/verso:
     devDependencies:
       '@types/node':
-        specifier: ^26.1.2
-        version: 26.1.2
+        specifier: ^26.2.0
+        version: 26.2.0
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -930,8 +930,8 @@ packages:
   '@types/mdast@4.0.4':
     resolution: {integrity: sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA==}
 
-  '@types/node@26.1.2':
-    resolution: {integrity: sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg==}
+  '@types/node@26.2.0':
+    resolution: {integrity: sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg==}
 
   '@types/react-dom@19.2.4':
     resolution: {integrity: sha512-Bsc+QHgp+P/F02XDzNCY9jnZNCUuLki36KT7VKrTXXLdHf+vHMNZnW1rVu5DNW/rCK+fya3DATySbLM4yhtKUw==}
@@ -1312,6 +1312,11 @@ packages:
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
+  lucide-react@1.31.0:
+    resolution: {integrity: sha512-G8u2eEtoHUnUa9f8lbvqDhCiORMnYLdUEo06EEG9MQvHQrInKcX3Pa2TH39MM5qyzRcWETxB0+aOwAPI1g1kEg==}
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
@@ -1357,8 +1362,8 @@ packages:
       vite-plus:
         optional: true
 
-  oxlint-tailwindcss@1.7.0:
-    resolution: {integrity: sha512-cH+Qml5tUuVgAPC88S3vbjaqj6wNw5EF8l4zsLmQx6x+wXKRGWy1+AzKi3wmLHMy9m/QXkpJHyzMsuEnLSRpQQ==}
+  oxlint-tailwindcss@1.7.1:
+    resolution: {integrity: sha512-b1020t2FGEaqAubB9TF2+unoCqllj8Uo1NTh6JX1uR9Ht/s4Vmunc0Nh+UdobUFH55y059SlRMhy4ljdslXdUw==}
     engines: {node: '>=20'}
 
   oxlint@1.77.0:
@@ -1556,17 +1561,17 @@ packages:
 
 snapshots:
 
-  '@amamo/doctrine@0.2.1(@types/node@26.1.2)(@types/react@19.2.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)':
+  '@amamo/doctrine@0.2.1(@types/node@26.2.0)(@types/react@19.2.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)':
     dependencies:
-      '@amamo/mdx': 0.1.5(react@19.2.8)(vite@8.2.1(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))
+      '@amamo/mdx': 0.1.5(react@19.2.8)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))
       '@base-ui/react': 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@tailwindcss/vite': 4.3.3(vite@8.2.1(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))
-      '@vitejs/plugin-react': 6.0.5(vite@8.2.1(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))
+      '@tailwindcss/vite': 4.3.3(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))
+      '@vitejs/plugin-react': 6.0.5(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))
       lucide-react: 1.29.0(react@19.2.8)
       pagefind: 1.5.2
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
-      vite: 8.2.1(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
+      vite: 8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
     transitivePeerDependencies:
       - '@date-fns/tz'
       - '@rolldown/plugin-babel'
@@ -1608,7 +1613,7 @@ snapshots:
   '@amamo/mdx-win32-x64-msvc@0.1.5':
     optional: true
 
-  '@amamo/mdx@0.1.5(react@19.2.8)(vite@8.2.1(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))':
+  '@amamo/mdx@0.1.5(react@19.2.8)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))':
     dependencies:
       shiki: 4.4.2
     optionalDependencies:
@@ -1620,15 +1625,15 @@ snapshots:
       '@amamo/mdx-linux-x64-musl': 0.1.5
       '@amamo/mdx-win32-x64-msvc': 0.1.5
       react: 19.2.8
-      vite: 8.2.1(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
+      vite: 8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
 
-  '@amamo/oxlint-config@1.0.0(oxfmt@0.62.0)(oxlint-tailwindcss@1.7.0)(oxlint@1.77.0)':
+  '@amamo/oxlint-config@1.0.0(oxfmt@0.62.0)(oxlint-tailwindcss@1.7.1)(oxlint@1.77.0)':
     dependencies:
       jsonc-parser: 3.3.1
       oxfmt: 0.62.0
       oxlint: 1.77.0
     optionalDependencies:
-      oxlint-tailwindcss: 1.7.0
+      oxlint-tailwindcss: 1.7.1
 
   '@babel/runtime@7.29.7': {}
 
@@ -2057,12 +2062,12 @@ snapshots:
       '@tailwindcss/oxide-win32-arm64-msvc': 4.3.3
       '@tailwindcss/oxide-win32-x64-msvc': 4.3.3
 
-  '@tailwindcss/vite@4.3.3(vite@8.2.1(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))':
+  '@tailwindcss/vite@4.3.3(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))':
     dependencies:
       '@tailwindcss/node': 4.3.3
       '@tailwindcss/oxide': 4.3.3
       tailwindcss: 4.3.3
-      vite: 8.2.1(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
+      vite: 8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
 
   '@types/hast@3.0.5':
     dependencies:
@@ -2072,7 +2077,7 @@ snapshots:
     dependencies:
       '@types/unist': 3.0.3
 
-  '@types/node@26.1.2':
+  '@types/node@26.2.0':
     dependencies:
       undici-types: 8.3.0
 
@@ -2148,10 +2153,10 @@ snapshots:
 
   '@ungap/structured-clone@1.3.3': {}
 
-  '@vitejs/plugin-react@6.0.5(vite@8.2.1(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))':
+  '@vitejs/plugin-react@6.0.5(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
-      vite: 8.2.1(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
+      vite: 8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
 
   acorn@8.18.0:
     optional: true
@@ -2350,6 +2355,10 @@ snapshots:
     dependencies:
       react: 19.2.8
 
+  lucide-react@1.31.0(react@19.2.8):
+    dependencies:
+      react: 19.2.8
+
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
@@ -2417,7 +2426,7 @@ snapshots:
       '@oxfmt/binding-win32-ia32-msvc': 0.62.0
       '@oxfmt/binding-win32-x64-msvc': 0.62.0
 
-  oxlint-tailwindcss@1.7.0:
+  oxlint-tailwindcss@1.7.1:
     dependencies:
       '@tailwindcss/node': 4.3.3
       tailwindcss: 4.3.3
@@ -2621,7 +2630,7 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  vite@8.2.1(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0):
+  vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
@@ -2629,7 +2638,7 @@ snapshots:
       rolldown: 1.2.2
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@types/node': 26.1.2
+      '@types/node': 26.2.0
       esbuild: 0.28.1
       fsevents: 2.3.3
       jiti: 2.7.0
