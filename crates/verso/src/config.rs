@@ -1,9 +1,12 @@
+use crate::changelog::ChangelogPreset;
 use serde::Deserialize;
 use std::{
     fs,
     io::ErrorKind,
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
 };
+
+pub const DEFAULT_TAG_NAME_TEMPLATE: &str = "v${version}";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -34,7 +37,7 @@ pub struct WorkspaceConfig {
 pub struct ChangelogConfig {
     pub enabled: bool,
     pub infile: String,
-    pub preset: String,
+    pub preset: ChangelogPreset,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,7 +130,14 @@ struct RawGithubReleaseConfig {
 }
 
 pub fn load_config(path: &Path) -> Result<Config, String> {
-    let contents = fs::read_to_string(path).map_err(|error| {
+    let absolute = absolute_path(path)?;
+    let parent = absolute
+        .parent()
+        .ok_or_else(|| format!("{} has no parent directory", absolute.display()))?;
+    if absolute.exists() {
+        crate::workspace::validate_release_path(parent, &absolute)?;
+    }
+    let contents = fs::read_to_string(&absolute).map_err(|error| {
         if error.kind() == ErrorKind::NotFound {
             format!(
                 "failed to read {}: {error}\n\nhelp: create a verso.toml with `verso init`, or omit [workspaces] for a single-package release.\nhelp: pass a different config path with --config <PATH>.",
@@ -138,6 +148,16 @@ pub fn load_config(path: &Path) -> Result<Config, String> {
         }
     })?;
     parse_config_with_label(&contents, &path.display().to_string())
+}
+
+fn absolute_path(path: &Path) -> Result<PathBuf, String> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        std::env::current_dir()
+            .map(|current| current.join(path))
+            .map_err(|error| format!("failed to read current dir: {error}"))
+    }
 }
 
 pub fn default_config() -> Config {
@@ -156,12 +176,12 @@ pub fn default_config() -> Config {
         changelog: ChangelogConfig {
             enabled: false,
             infile: "CHANGELOG.md".to_owned(),
-            preset: "angular".to_owned(),
+            preset: ChangelogPreset::Angular,
         },
         git: GitConfig {
             require_clean_worktree: true,
             commit_message: "chore(release): release v${version}".to_owned(),
-            tag_name: "v${version}".to_owned(),
+            tag_name: DEFAULT_TAG_NAME_TEMPLATE.to_owned(),
             push: "atomic".to_owned(),
         },
         hooks: HooksConfig::default(),
@@ -207,6 +227,11 @@ fn parse_config_with_label(contents: &str, label: &str) -> Result<Config, String
         .github_release
         .unwrap_or(RawGithubReleaseConfig { enabled: None });
 
+    let preset_name = changelog.preset.unwrap_or_else(|| "angular".to_string());
+    let preset = preset_name
+        .parse::<ChangelogPreset>()
+        .map_err(|error| format!("invalid changelog preset {preset_name:?}: {error}"))?;
+
     let config = Config {
         version: VersionConfig {
             root_package: version
@@ -242,14 +267,16 @@ fn parse_config_with_label(contents: &str, label: &str) -> Result<Config, String
             infile: changelog
                 .infile
                 .unwrap_or_else(|| "CHANGELOG.md".to_string()),
-            preset: changelog.preset.unwrap_or_else(|| "angular".to_string()),
+            preset,
         },
         git: GitConfig {
             require_clean_worktree: git.require_clean_worktree.unwrap_or(true),
             commit_message: git
                 .commit_message
                 .unwrap_or_else(|| "chore(release): release v${version}".to_string()),
-            tag_name: git.tag_name.unwrap_or_else(|| "v${version}".to_string()),
+            tag_name: git
+                .tag_name
+                .unwrap_or_else(|| DEFAULT_TAG_NAME_TEMPLATE.to_string()),
             push: git.push.map_or_else(
                 || "atomic".to_string(),
                 |push| {
@@ -281,6 +308,12 @@ fn parse_config_with_label(contents: &str, label: &str) -> Result<Config, String
 }
 
 fn validate_config(config: &Config) -> Result<(), String> {
+    if !config.version.require_consistent_versions {
+        return Err(
+            "version.require_consistent_versions = false is not supported; use a separate Verso config for each independent version group and select it with --config <PATH> or --group <NAME>"
+                .to_string(),
+        );
+    }
     if config.workspaces.patterns.is_empty() && !config.workspaces.include_root {
         return Err(
             "workspaces.patterns must contain at least one pattern when workspaces.include_root is false"
@@ -343,9 +376,6 @@ fn validate_config(config: &Config) -> Result<(), String> {
         validate_config_relative_path("version.cargo_manifest_paths", path)?;
     }
     validate_config_relative_path("changelog.infile", &config.changelog.infile)?;
-    if config.changelog.preset != "angular" {
-        return Err("only changelog preset \"angular\" is supported".to_string());
-    }
     if config.git.push != "atomic" {
         return Err("only git.push = \"atomic\" is supported".to_string());
     }
@@ -449,6 +479,14 @@ fn is_valid_git_tag_name(tag: &str) -> bool {
     })
 }
 
+pub(crate) fn validate_rendered_tag_name(tag: &str) -> Result<(), String> {
+    if is_valid_git_tag_name(tag) {
+        Ok(())
+    } else {
+        Err(format!("release group renders an invalid Git tag {tag:?}"))
+    }
+}
+
 pub fn render_template(template: &str, version: &str) -> String {
     template.replace("${version}", version)
 }
@@ -475,7 +513,7 @@ mod tests {
         assert!(config.workspaces.use_gitignore);
         assert!(!config.changelog.enabled);
         assert_eq!(config.changelog.infile, "CHANGELOG.md");
-        assert_eq!(config.changelog.preset, "angular");
+        assert_eq!(config.changelog.preset, ChangelogPreset::Angular);
         assert!(config.git.require_clean_worktree);
         assert_eq!(
             config.git.commit_message,
@@ -876,6 +914,35 @@ mod tests {
         .expect_err("unsupported changelog preset should be rejected");
 
         assert!(error.contains("changelog preset"));
+    }
+
+    #[test]
+    fn accepts_keep_a_changelog_preset() -> Result<(), String> {
+        let config = parse_config(
+            r#"
+            [changelog]
+            preset = "keep-a-changelog"
+            "#,
+        )?;
+
+        assert_eq!(config.changelog.preset, ChangelogPreset::KeepAChangelog);
+        assert_eq!(config.changelog.preset.as_str(), "keep-a-changelog");
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_disabled_consistent_versions_with_group_guidance() {
+        let error = parse_config(
+            r#"
+            [version]
+            require_consistent_versions = false
+            "#,
+        )
+        .expect_err("independent versions need separate group configs");
+
+        assert!(error.contains("require_consistent_versions = false"));
+        assert!(error.contains("separate Verso config"));
+        assert!(error.contains("--group <NAME>"));
     }
 
     #[test]

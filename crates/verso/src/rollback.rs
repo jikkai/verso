@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -32,9 +33,7 @@ impl ChangeSet {
                 .insert(path.to_path_buf(), original_contents(path)?);
         }
 
-        create_parent_dir(path)?;
-
-        fs::write(path, contents)
+        atomic_write(path, contents)
             .map_err(|error| format!("failed to write {}: {error}", path.display()))?;
 
         let written_path = path.to_path_buf();
@@ -47,36 +46,90 @@ impl ChangeSet {
 
     /// Restores written paths in reverse write order.
     ///
-    /// Returns on the first restore/remove failure, so an error may mean the
-    /// rollback was only partially applied.
+    /// Attempts every path and reports all restore/remove failures together.
     pub fn rollback(&self) -> Result<Vec<PathBuf>, String> {
         let mut restored = Vec::new();
+        let mut errors = Vec::new();
 
         for path in self.written.iter().rev() {
-            match self
-                .originals
-                .get(path)
-                .ok_or_else(|| format!("missing rollback snapshot for {}", path.display()))?
-            {
-                Some(contents) => {
-                    create_parent_dir(path)?;
-                    fs::write(path, contents).map_err(|error| {
-                        format!("failed to restore {}: {error}", path.display())
-                    })?;
-                }
-                None => match fs::remove_file(path) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(error) => {
-                        return Err(format!("failed to remove {}: {error}", path.display()));
-                    }
+            let result = match self.originals.get(path) {
+                Some(Some(contents)) => atomic_write(path, contents)
+                    .map_err(|error| format!("failed to restore {}: {error}", path.display())),
+                Some(None) => match fs::remove_file(path) {
+                    Ok(()) => sync_parent(
+                        path.parent()
+                            .filter(|parent| !parent.as_os_str().is_empty())
+                            .unwrap_or_else(|| Path::new(".")),
+                    ),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(error) => Err(format!("failed to remove {}: {error}", path.display())),
                 },
+                None => Err(format!("missing rollback snapshot for {}", path.display())),
+            };
+
+            match result {
+                Ok(()) => restored.push(path.clone()),
+                Err(error) => errors.push(error),
             }
-            restored.push(path.clone());
         }
 
-        Ok(restored)
+        if errors.is_empty() {
+            Ok(restored)
+        } else {
+            Err(errors.join("; "))
+        }
     }
+}
+
+pub(crate) fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
+    create_parent_dir(path)?;
+
+    let permissions = match fs::metadata(path) {
+        Ok(metadata) => Some(metadata.permissions()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("failed to read file permissions: {error}")),
+    };
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("failed to create temporary file: {error}"))?;
+
+    temporary
+        .write_all(contents)
+        .map_err(|error| format!("failed to write temporary file: {error}"))?;
+    temporary
+        .flush()
+        .map_err(|error| format!("failed to flush temporary file: {error}"))?;
+    if let Some(permissions) = permissions {
+        temporary
+            .as_file()
+            .set_permissions(permissions)
+            .map_err(|error| format!("failed to preserve file permissions: {error}"))?;
+    }
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("failed to sync temporary file: {error}"))?;
+    temporary
+        .persist(path)
+        .map_err(|error| format!("failed to replace destination: {}", error.error))?;
+    sync_parent(parent)?;
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_parent(parent: &Path) -> Result<(), String> {
+    fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| format!("failed to sync parent directory: {error}"))
+}
+
+#[cfg(not(unix))]
+fn sync_parent(_parent: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 fn original_contents(path: &Path) -> Result<Option<Vec<u8>>, String> {
@@ -214,6 +267,56 @@ mod tests {
             fs::read(&path).map_err(|error| error.to_string())?,
             original
         );
+        Ok(())
+    }
+
+    #[test]
+    fn rollback_continues_after_a_restore_failure() -> Result<(), String> {
+        let temp = TempDir::new().map_err(|error| error.to_string())?;
+        let restored_path = temp.path().join("restored.txt");
+        let blocked_path = temp.path().join("blocked.txt");
+        fs::write(&restored_path, b"restored original").map_err(|error| error.to_string())?;
+        fs::write(&blocked_path, b"blocked original").map_err(|error| error.to_string())?;
+        let mut changes = ChangeSet::snapshot(&[restored_path.clone(), blocked_path.clone()])?;
+
+        changes.write(&restored_path, b"restored changed")?;
+        changes.write(&blocked_path, b"blocked changed")?;
+        fs::remove_file(&blocked_path).map_err(|error| error.to_string())?;
+        fs::create_dir(&blocked_path).map_err(|error| error.to_string())?;
+
+        let error = changes
+            .rollback()
+            .expect_err("replacing a directory with a file should fail");
+
+        assert!(error.contains("failed to restore"));
+        assert_eq!(
+            fs::read(&restored_path).map_err(|error| error.to_string())?,
+            b"restored original"
+        );
+        assert!(blocked_path.is_dir());
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_preserves_existing_permissions() -> Result<(), String> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = TempDir::new().map_err(|error| error.to_string())?;
+        let path = temp.path().join("executable.sh");
+        fs::write(&path, b"old").map_err(|error| error.to_string())?;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o744))
+            .map_err(|error| error.to_string())?;
+        let mut changes = ChangeSet::snapshot(std::slice::from_ref(&path))?;
+
+        changes.write(&path, b"new")?;
+
+        let mode = fs::metadata(&path)
+            .map_err(|error| error.to_string())?
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o744);
         Ok(())
     }
 }

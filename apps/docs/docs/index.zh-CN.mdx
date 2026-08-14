@@ -8,9 +8,9 @@ Verso 是面向统一版本仓库的原生发布 CLI。它会发现需要发布�
 changelog 顶部加入 Conventional Commit 记录，创建 annotated tag，再原子推送当前上游分支和这个准确的 tag。
 
 ```sh
-pnpm add -D @amamo/verso
-pnpm exec verso doctor
-pnpm exec verso --dry-run
+# 使用你偏好的 package manager 安装 @amamo/verso，然后：
+verso doctor
+verso --dry-run
 ```
 
 <Callout variant="tip" title="刻意保持较小的发布边界">

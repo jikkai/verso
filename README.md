@@ -6,9 +6,10 @@
 [![npm version](https://img.shields.io/npm/v/@amamo/verso.svg)](https://www.npmjs.com/package/@amamo/verso)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Verso releases a JavaScript workspace as one version. It discovers package manifests, optionally
-updates configured Cargo packages and a Conventional Commit changelog, creates a release commit and
-annotated tag, then atomically pushes the current upstream branch and that exact tag.
+Verso releases each configured JavaScript workspace group as one version. It discovers package
+manifests, optionally updates configured Cargo packages and a Conventional Commit changelog, creates
+a release commit and annotated tag, then atomically pushes the current upstream branch and that exact
+tag.
 
 Verso deliberately stops there. Registry publication, GitHub Releases, binary builds, and deployment
 belong in tag-triggered CI.
@@ -22,16 +23,17 @@ belong in tag-triggered CI.
 
 ## Quick start
 
-```sh
-pnpm add -D @amamo/verso
-```
+Install `@amamo/verso` with your preferred package manager:
 
-```json
-{
-  "scripts": {
-    "release": "verso"
-  }
-}
+```sh
+# npm
+npm install --save-dev @amamo/verso
+# pnpm
+pnpm add --save-dev @amamo/verso
+# Yarn
+yarn add --dev @amamo/verso
+# Bun
+bun add --dev @amamo/verso
 ```
 
 A single-package repository needs no config file. For a workspace, create `verso.toml`:
@@ -44,41 +46,56 @@ patterns = ["packages/*"]
 Then inspect the repository and an exact release plan:
 
 ```sh
-pnpm release -- doctor
-pnpm release -- --dry-run --version 1.4.0
+verso doctor
+verso --dry-run --version 1.4.0
 ```
+
+Dry-run computes the same transformations as execution and prints the actual before/after diff for
+every changed file, without writing it.
 
 When the plan is correct, run interactively or provide an exact version for automation:
 
 ```sh
-pnpm release
-pnpm release -- --version 1.4.0 --yes
+verso
+verso --version 1.4.0 --yes
 ```
 
 `--yes` accepts confirmations; it does not choose a version.
+
+To prepare a version-only change for a release PR, use `bump`:
+
+```sh
+verso bump minor
+verso bump --version 1.4.0
+```
+
+`bump` updates package/Cargo manifests and matching Cargo lock entries. It does not update the
+changelog or create a commit, tag, or push.
 
 ## Release model
 
 ```text
 config + manifests + Git history
-  -> validate project and shared versions
-  -> resolve one target SemVer
-  -> update package/Cargo versions and optional changelog
-  -> commit -> annotated tag
-  -> git push --atomic <upstream-branch> <exact-tag>
+  -> validate one release group and resolve one target SemVer
+  -> calculate exact before/after file changes
+  -> persist transaction -> update files -> commit -> annotated tag
+  -> git push --atomic <upstream-branch> <exact-tag> -> clear transaction
 ```
 
 - `verso doctor` checks config, package discovery, versions, changelog path, Cargo packages, and the
   branch upstream without starting a release.
-- `verso --dry-run` prints version files, hooks, warnings, and Git commands without writes or
-  mutating Git commands.
+- `verso --dry-run` prints the exact before/after file diff, hooks, warnings, and Git commands without
+  writes or mutating Git commands.
+- `verso bump patch|minor|major` or `verso bump --version <SEMVER>` applies only version-file changes.
 - Real releases require a clean worktree by default. Relaxed mode still requires a clean index and
   clean release files.
-- Execution failures before push use stage-aware local cleanup. User cancellation keeps completed
-  checkpoints visible: modified files, a release commit, or a local tag may remain depending on the
-  prompt.
-- A push failure keeps the local commit and tag. An `after_push` hook failure occurs after the remote
-  has accepted the release refs.
+- `verso status`, `verso resume`, and `verso abort` inspect, continue, or safely roll back an
+  interrupted transaction. Once the release was pushed, it cannot be aborted; resume finishes any
+  remaining `after_push` work.
+- If a hook was interrupted, inspect its side effects and choose `verso resume --retry-hook` or
+  `verso resume --skip-hook`. Once a push has started, automatic abort is disabled because the remote
+  outcome may be unknown; resume verifies the exact remote tag object and release commit before
+  finishing or retrying, and requires the remote branch to equal or contain that commit.
 
 See the [release workflow](https://jikkai.github.io/verso/release-workflow/) for the complete state
 matrix.
@@ -86,7 +103,9 @@ matrix.
 ## Configuration
 
 Every key is optional. `verso init` writes a starter, and `--config <PATH>` makes the containing
-directory the release root. Unknown keys are rejected; config paths must be relative, use forward
+directory the release root. One config defines one release group; `--group core` selects
+`verso.core.toml`. Use separate configs for independently versioned groups. Versions within each
+group must remain consistent. Unknown keys are rejected; config paths must be relative, use forward
 slashes, and stay inside that root.
 
 ```toml
@@ -124,14 +143,19 @@ JSON, JSON5, `package.yaml`, `package.yml`.
 Hooks are trusted shell commands and are included verbatim in dry-run output. Pass secrets through
 the environment instead of embedding them in `verso.toml`.
 
+`changelog.preset` accepts `angular` and `keep-a-changelog`. Changelog generation belongs to a full
+release; `bump` leaves it unchanged.
+
 Full details: [configuration](https://jikkai.github.io/verso/configuration/) and
 [CLI reference](https://jikkai.github.io/verso/cli-reference/).
 
 ## Scope
 
-Verso fits repositories where all releasable packages share one version and tag. It does not support
-independent package versions, non-atomic push modes, local registry publishing, or
-`github_release.enabled = true`.
+Verso keeps one consistent version and tag per configured release group. Independently versioned
+groups use separate configs and are released one at a time; independent versions within one group
+are not supported. Named groups using the default tag template automatically get tags such as
+`core-v1.2.3`, avoiding collisions with other groups. Verso also does not support non-atomic push
+modes, local registry publishing, or `github_release.enabled = true`.
 
 Maintainer setup and publishing are in [CONTRIBUTING.md](CONTRIBUTING.md). Security reports follow
 [SECURITY.md](SECURITY.md).

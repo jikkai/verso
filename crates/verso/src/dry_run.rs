@@ -1,30 +1,14 @@
-use crate::diagnostic::render_warning;
+pub use crate::plan::{PlannedHook, ReleasePlan};
+use crate::{
+    diagnostic::render_warning,
+    plan::{PlanMode, PlannedFileChange},
+};
 use anstyle::{AnsiColor, Style};
-use semver::Version;
 use serde_json::json;
 use std::{
     collections::BTreeMap,
     path::{Component, Path, PathBuf},
 };
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReleasePlan {
-    pub current_version: Version,
-    pub target_version: Version,
-    pub package_files: Vec<PathBuf>,
-    pub extra_version_files: Vec<PathBuf>,
-    pub changelog_file: Option<PathBuf>,
-    pub commit_message: String,
-    pub tag_name: String,
-    pub hooks: Vec<PlannedHook>,
-    pub warnings: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlannedHook {
-    pub name: String,
-    pub command: String,
-}
 
 pub fn render_dry_run_json(root: &Path, plan: &ReleasePlan) -> String {
     let package_files = normalized_files(&plan.package_files);
@@ -36,44 +20,51 @@ pub fn render_dry_run_json(root: &Path, plan: &ReleasePlan) -> String {
             .cloned()
             .collect::<Vec<_>>(),
     );
-    let mut git_add_files = version_files.clone();
-    if let Some(changelog_file) = &plan.changelog_file {
-        git_add_files.push(changelog_file.clone());
-    }
-    git_add_files.sort();
-    git_add_files.dedup();
+    let git_add_files = changed_files(plan);
 
     let git_add_args = git_add_files
         .iter()
         .map(|file| relative_string(root, file))
         .collect::<Vec<_>>();
-    let mut git_add_command = vec!["git".to_owned(), "add".to_owned()];
-    git_add_command.extend(git_add_args);
-    let git_commands = vec![
-        git_add_command,
+    let git_commands = if let (PlanMode::Release, Some(commit), Some(tag)) =
+        (plan.mode, &plan.commit_message, &plan.tag_name)
+    {
+        let mut git_add_command = vec!["git".to_owned(), "add".to_owned(), "--".to_owned()];
+        git_add_command.extend(git_add_args);
         vec![
-            "git".to_owned(),
-            "commit".to_owned(),
-            "-m".to_owned(),
-            plan.commit_message.clone(),
-        ],
-        vec![
-            "git".to_owned(),
-            "tag".to_owned(),
-            "-a".to_owned(),
-            plan.tag_name.clone(),
-            "-m".to_owned(),
-            plan.tag_name.clone(),
-        ],
-        vec![
-            "git".to_owned(),
-            "push".to_owned(),
-            "--atomic".to_owned(),
-            "<upstream-remote>".to_owned(),
-            "HEAD:<upstream-branch>".to_owned(),
-            format!("refs/tags/{0}:refs/tags/{0}", plan.tag_name),
-        ],
-    ];
+            git_add_command,
+            vec![
+                "git".to_owned(),
+                "commit".to_owned(),
+                "--cleanup=verbatim".to_owned(),
+                "-m".to_owned(),
+                commit.clone(),
+            ],
+            vec![
+                "git".to_owned(),
+                "mktag".to_owned(),
+                "<annotated-tag-object-stdin>".to_owned(),
+            ],
+            vec![
+                "git".to_owned(),
+                "update-ref".to_owned(),
+                format!("refs/tags/{tag}"),
+                "<tag-object-oid>".to_owned(),
+                String::new(),
+            ],
+            vec![
+                "git".to_owned(),
+                "push".to_owned(),
+                "--atomic".to_owned(),
+                "--".to_owned(),
+                "<upstream-push-url>".to_owned(),
+                "<release-commit-oid>:refs/heads/<upstream-branch>".to_owned(),
+                format!("<tag-object-oid>:refs/tags/{tag}"),
+            ],
+        ]
+    } else {
+        Vec::new()
+    };
 
     let hooks = plan
         .hooks
@@ -85,8 +76,23 @@ pub fn render_dry_run_json(root: &Path, plan: &ReleasePlan) -> String {
             })
         })
         .collect::<Vec<_>>();
+    let file_changes = plan
+        .file_changes
+        .iter()
+        .map(|change| {
+            json!({
+                "path": relative_string(root, &change.path),
+                "kind": change.kind.as_str(),
+                "before": change.before,
+                "after": change.after,
+                "diff": render_file_diff(root, change),
+            })
+        })
+        .collect::<Vec<_>>();
 
     serde_json::to_string_pretty(&json!({
+        "operation": plan.mode.as_str(),
+        "group": plan.group,
         "currentVersion": plan.current_version.to_string(),
         "targetVersion": plan.target_version.to_string(),
         "packageFiles": package_files
@@ -102,6 +108,7 @@ pub fn render_dry_run_json(root: &Path, plan: &ReleasePlan) -> String {
             .map(|file| relative_string(root, file))
             .collect::<Vec<_>>(),
         "changelogFile": plan.changelog_file.as_ref().map(|file| relative_string(root, file)),
+        "fileChanges": file_changes,
         "commitMessage": plan.commit_message,
         "tagName": plan.tag_name,
         "hooks": hooks,
@@ -115,15 +122,9 @@ pub fn render_dry_run(root: &Path, plan: &ReleasePlan) -> String {
     let mut output = String::new();
     let package_files = normalized_files(&plan.package_files);
     let extra_version_files = normalized_files(&plan.extra_version_files);
-    let version_files = normalized_files(
-        &package_files
-            .iter()
-            .chain(extra_version_files.iter())
-            .cloned()
-            .collect::<Vec<_>>(),
-    );
-
     output.push_str("Verso dry run\n\n");
+    output.push_str(&format!("Operation: {}\n", plan.mode.as_str()));
+    output.push_str(&format!("Release group: {}\n", plan.group));
     output.push_str(&format!("Current version: {}\n", plan.current_version));
     output.push_str(&format!("Target version: {}\n", plan.target_version));
     output.push_str(&format!("Package count: {}\n", package_files.len()));
@@ -141,8 +142,13 @@ pub fn render_dry_run(root: &Path, plan: &ReleasePlan) -> String {
         }
     }
 
-    output.push_str("\nVersion updates:\n");
-    output.push_str(&render_tree(root, &version_files));
+    let changed_files = changed_files(plan);
+    output.push_str("\nVersion updates (exact file changes):\n");
+    output.push_str(&render_tree(root, &changed_files));
+    for change in &plan.file_changes {
+        output.push('\n');
+        output.push_str(&render_file_diff(root, change));
+    }
 
     if let Some(changelog_file) = &plan.changelog_file {
         output.push_str(&format!(
@@ -158,33 +164,32 @@ pub fn render_dry_run(root: &Path, plan: &ReleasePlan) -> String {
         }
     }
 
-    let mut git_add_files = version_files;
-    if let Some(changelog_file) = &plan.changelog_file {
-        git_add_files.push(changelog_file.clone());
-    }
-    git_add_files.sort();
-    git_add_files.dedup();
+    let git_add_files = changed_files;
     let git_add_args = git_add_files
         .iter()
         .map(|file| shell_quote(&relative_string(root, file)))
         .collect::<Vec<_>>()
         .join(" ");
 
-    output.push_str("\nPlanned git commands:\n");
-    output.push_str(&format!("git add {git_add_args}\n"));
-    output.push_str(&format!(
-        "git commit -m {}\n",
-        shell_quote(&plan.commit_message)
-    ));
-    output.push_str(&format!(
-        "git tag -a {} -m {}\n",
-        shell_quote(&plan.tag_name),
-        shell_quote(&plan.tag_name)
-    ));
-    output.push_str(&format!(
-        "git push --atomic <upstream-remote> HEAD:<upstream-branch> {}\n",
-        shell_quote(&format!("refs/tags/{0}:refs/tags/{0}", plan.tag_name))
-    ));
+    if let (PlanMode::Release, Some(commit), Some(tag)) =
+        (plan.mode, &plan.commit_message, &plan.tag_name)
+    {
+        output.push_str("\nPlanned git commands:\n");
+        output.push_str(&format!("git add -- {git_add_args}\n"));
+        output.push_str(&format!(
+            "git commit --cleanup=verbatim -m {}\n",
+            shell_quote(commit)
+        ));
+        output.push_str("git mktag < <annotated-tag-object>\n");
+        output.push_str(&format!(
+            "git update-ref {} <tag-object-oid> ''\n",
+            shell_quote(&format!("refs/tags/{tag}"))
+        ));
+        output.push_str(&format!(
+            "git push --atomic -- <upstream-push-url> <release-commit-oid>:refs/heads/<upstream-branch> {}\n",
+            shell_quote(&format!("<tag-object-oid>:refs/tags/{tag}"))
+        ));
+    }
 
     output
 }
@@ -193,19 +198,19 @@ pub fn render_dry_run_styled(root: &Path, plan: &ReleasePlan) -> String {
     let mut output = String::new();
     let package_files = normalized_files(&plan.package_files);
     let extra_version_files = normalized_files(&plan.extra_version_files);
-    let version_files = normalized_files(
-        &package_files
-            .iter()
-            .chain(extra_version_files.iter())
-            .cloned()
-            .collect::<Vec<_>>(),
-    );
-
     output.push_str(&format!(
         "{}DRY RUN{} {}\n",
         style(Style::new().bold().fg_color(Some(AnsiColor::Cyan.into()))),
         reset(),
-        style_text("Verso release preview", Style::new().bold())
+        style_text(
+            &format!("Verso {} preview", plan.mode.as_str()),
+            Style::new().bold()
+        )
+    ));
+    output.push_str(&format!(
+        "{} {}\n",
+        style_text("Release group", Style::new().bold()),
+        plan.group
     ));
     output.push_str(&format!(
         "{} {}\n",
@@ -237,8 +242,13 @@ pub fn render_dry_run_styled(root: &Path, plan: &ReleasePlan) -> String {
     }
 
     output.push('\n');
-    output.push_str(&section_title("Version updates"));
-    output.push_str(&render_tree(root, &version_files));
+    let changed_files = changed_files(plan);
+    output.push_str(&section_title("Version updates (exact file changes)"));
+    output.push_str(&render_tree(root, &changed_files));
+    for change in &plan.file_changes {
+        output.push('\n');
+        output.push_str(&render_file_diff(root, change));
+    }
 
     if let Some(changelog_file) = &plan.changelog_file {
         output.push('\n');
@@ -258,34 +268,33 @@ pub fn render_dry_run_styled(root: &Path, plan: &ReleasePlan) -> String {
         }
     }
 
-    let mut git_add_files = version_files;
-    if let Some(changelog_file) = &plan.changelog_file {
-        git_add_files.push(changelog_file.clone());
-    }
-    git_add_files.sort();
-    git_add_files.dedup();
+    let git_add_files = changed_files;
     let git_add_args = git_add_files
         .iter()
         .map(|file| shell_quote(&relative_string(root, file)))
         .collect::<Vec<_>>()
         .join(" ");
 
-    output.push('\n');
-    output.push_str(&section_title("Planned git commands"));
-    output.push_str(&command_line(&format!("git add {git_add_args}")));
-    output.push_str(&command_line(&format!(
-        "git commit -m {}",
-        shell_quote(&plan.commit_message)
-    )));
-    output.push_str(&command_line(&format!(
-        "git tag -a {} -m {}",
-        shell_quote(&plan.tag_name),
-        shell_quote(&plan.tag_name)
-    )));
-    output.push_str(&command_line(&format!(
-        "git push --atomic <upstream-remote> HEAD:<upstream-branch> {}",
-        shell_quote(&format!("refs/tags/{0}:refs/tags/{0}", plan.tag_name))
-    )));
+    if let (PlanMode::Release, Some(commit), Some(tag)) =
+        (plan.mode, &plan.commit_message, &plan.tag_name)
+    {
+        output.push('\n');
+        output.push_str(&section_title("Planned git commands"));
+        output.push_str(&command_line(&format!("git add -- {git_add_args}")));
+        output.push_str(&command_line(&format!(
+            "git commit --cleanup=verbatim -m {}",
+            shell_quote(commit)
+        )));
+        output.push_str(&command_line("git mktag < <annotated-tag-object>"));
+        output.push_str(&command_line(&format!(
+            "git update-ref {} <tag-object-oid> ''",
+            shell_quote(&format!("refs/tags/{tag}"))
+        )));
+        output.push_str(&command_line(&format!(
+            "git push --atomic -- <upstream-push-url> <release-commit-oid>:refs/heads/<upstream-branch> {}",
+            shell_quote(&format!("<tag-object-oid>:refs/tags/{tag}"))
+        )));
+    }
 
     output
 }
@@ -303,6 +312,41 @@ pub fn render_tree(root: &Path, files: &[PathBuf]) -> String {
 
     let mut output = ".\n".to_owned();
     render_children(&tree, "", &mut output);
+    output
+}
+
+fn changed_files(plan: &ReleasePlan) -> Vec<PathBuf> {
+    normalized_files(
+        &plan
+            .file_changes
+            .iter()
+            .map(|change| change.path.clone())
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn render_file_diff(root: &Path, change: &PlannedFileChange) -> String {
+    let path = relative_string(root, &change.path);
+    let before = change.before.as_deref().unwrap_or("");
+    let before_lines = before.lines().count();
+    let after_lines = change.after.lines().count();
+    let old_label = if change.before.is_some() {
+        format!("a/{path}")
+    } else {
+        "/dev/null".to_string()
+    };
+    let mut output =
+        format!("--- {old_label}\n+++ b/{path}\n@@ -1,{before_lines} +1,{after_lines} @@\n");
+    for line in before.lines() {
+        output.push('-');
+        output.push_str(line);
+        output.push('\n');
+    }
+    for line in change.after.lines() {
+        output.push('+');
+        output.push_str(line);
+        output.push('\n');
+    }
     output
 }
 
@@ -551,8 +595,9 @@ mod tests {
 
         let output = render_dry_run(root.path(), &plan);
 
-        assert!(output
-            .contains("git add 'docs/CHANGELOG.md' 'packages/space dir/bob'\\''s/package.json'\n"));
+        assert!(output.contains(
+            "git add -- 'docs/CHANGELOG.md' 'packages/space dir/bob'\\''s/package.json'\n"
+        ));
         Ok(())
     }
 
@@ -565,8 +610,7 @@ mod tests {
         let output = render_dry_run(root.path(), &plan);
 
         assert!(output.contains("Package count: 1\n"));
-        assert_eq!(output.matches("packages/a/package.json").count(), 1);
-        assert!(output.contains("git add 'docs/CHANGELOG.md' 'packages/a/package.json'\n"));
+        assert!(output.contains("git add -- 'docs/CHANGELOG.md' 'packages/a/package.json'\n"));
         Ok(())
     }
 
@@ -585,14 +629,21 @@ mod tests {
             vec![root.path().join("packages/verso/package.json")],
             Vec::new(),
         )?;
-        plan.extra_version_files = vec![root.path().join("crates/verso/Cargo.toml")];
+        let cargo_manifest = root.path().join("crates/verso/Cargo.toml");
+        plan.extra_version_files = vec![cargo_manifest.clone()];
+        plan.file_changes.push(PlannedFileChange {
+            path: cargo_manifest,
+            kind: crate::plan::FileKind::CargoManifest,
+            before: Some("[package]\nversion = \"1.2.3\"\n".to_owned()),
+            after: "[package]\nversion = \"1.3.0\"\n".to_owned(),
+        });
 
         let output = render_dry_run(root.path(), &plan);
 
         assert!(output.contains("Package count: 1\nExtra version file count: 1\n"));
         assert!(output.contains("crates\n│   └── verso\n│       └── Cargo.toml"));
         assert!(output.contains(
-            "git add 'crates/verso/Cargo.toml' 'docs/CHANGELOG.md' 'packages/verso/package.json'\n"
+            "git add -- 'crates/verso/Cargo.toml' 'docs/CHANGELOG.md' 'packages/verso/package.json'\n"
         ));
         Ok(())
     }
@@ -651,6 +702,11 @@ mod tests {
         assert_eq!(json["hooks"][0]["name"], "before_version");
         assert_eq!(json["gitCommands"][0][0], "git");
         assert_eq!(json["gitCommands"][0][1], "add");
+        assert_eq!(json["gitCommands"][0][2], "--");
+        assert_eq!(json["gitCommands"][1][2], "--cleanup=verbatim");
+        assert_eq!(json["gitCommands"][2][1], "mktag");
+        assert_eq!(json["gitCommands"][3][1], "update-ref");
+        assert_eq!(json["gitCommands"][4][3], "--");
         assert_eq!(json["warnings"][0], "working tree is dirty");
         Ok(())
     }
@@ -660,14 +716,35 @@ mod tests {
         package_files: Vec<PathBuf>,
         warnings: Vec<String>,
     ) -> Result<ReleasePlan, String> {
+        let mut file_changes = package_files
+            .iter()
+            .cloned()
+            .map(|path| PlannedFileChange {
+                path,
+                kind: crate::plan::FileKind::PackageManifest,
+                before: Some("{\"version\":\"1.2.3\"}\n".to_owned()),
+                after: "{\"version\":\"1.3.0\"}\n".to_owned(),
+            })
+            .collect::<Vec<_>>();
+        file_changes.push(PlannedFileChange {
+            path: root.join("docs/CHANGELOG.md"),
+            kind: crate::plan::FileKind::Changelog,
+            before: Some("# Changelog\n".to_owned()),
+            after: "# Changelog\n\n## 1.3.0\n".to_owned(),
+        });
         Ok(ReleasePlan {
+            mode: PlanMode::Release,
+            group: "default".to_owned(),
+            root: root.to_path_buf(),
+            config_path: root.join("verso.toml"),
             current_version: Version::parse("1.2.3").map_err(|error| error.to_string())?,
             target_version: Version::parse("1.3.0").map_err(|error| error.to_string())?,
             package_files,
             extra_version_files: Vec::new(),
             changelog_file: Some(root.join("docs/CHANGELOG.md")),
-            commit_message: "chore(release): release v1.3.0".to_owned(),
-            tag_name: "v1.3.0".to_owned(),
+            file_changes,
+            commit_message: Some("chore(release): release v1.3.0".to_owned()),
+            tag_name: Some("v1.3.0".to_owned()),
             hooks: Vec::new(),
             warnings,
         })

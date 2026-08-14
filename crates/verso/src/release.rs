@@ -1,15 +1,13 @@
 use crate::{
     cargo_manifest,
-    changelog::{self, render_changelog_entry},
-    cli::Cli,
-    config::{self, render_template},
+    cli::{BumpArgs, BumpLevel, Cli, ResumeArgs},
+    config,
     diagnostic::stdout_supports_color,
     doctor,
-    dry_run::{
-        render_dry_run, render_dry_run_json, render_dry_run_styled, PlannedHook, ReleasePlan,
-    },
-    git, package_json,
-    rollback::ChangeSet,
+    dry_run::{render_dry_run, render_dry_run_json, render_dry_run_styled},
+    git,
+    plan::{self, PlanMode, ReleasePlan},
+    transaction::{self, FilesState, ReleaseTransaction, TransactionStage},
     versioning::{bump_prerelease, bump_stable, parse_custom_version, BaseBump, PrereleaseChannel},
     workspace::PackageFile,
 };
@@ -25,190 +23,990 @@ use std::{
 const RELEASE_CANCELLED: &str = "cancelled: release aborted";
 
 pub fn run(cli: Cli) -> Result<(), String> {
+    run_mode(cli, PlanMode::Release, None)
+}
+
+pub fn run_bump(cli: Cli, args: BumpArgs) -> Result<(), String> {
+    run_mode(cli, PlanMode::Bump, args.level)
+}
+
+fn run_mode(cli: Cli, mode: PlanMode, bump_level: Option<BumpLevel>) -> Result<(), String> {
     if cli.json && !cli.dry_run {
         return Err("--json can only be used with --dry-run".to_string());
     }
 
     let config_path = cli.config_path_buf();
+    let root = release_root(&config_path)?;
+    let absolute_config_path = if config_path.is_absolute() {
+        config_path.clone()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| format!("failed to read current dir: {error}"))?
+            .join(&config_path)
+    };
+    let _lock = if cli.dry_run {
+        None
+    } else {
+        Some(transaction::lock(&root)?)
+    };
+    if _lock.is_some() && transaction::load(&root)?.is_some() {
+        return Err(
+            "an active Verso transaction already exists\n\nhelp: run `verso status`, then `verso resume` or `verso abort`."
+                .to_string(),
+        );
+    }
+    let planned_head = _lock
+        .as_ref()
+        .map(|_| git::current_head(&root))
+        .transpose()?;
     let allow_missing_default_config = !cli.config_was_explicit();
     let inspection = doctor::inspect_project(&config_path, allow_missing_default_config)?;
-    let root = inspection.root;
-    let config = inspection.config;
-    let packages = inspection.packages;
-    let cargo_manifest_files = inspection.cargo_manifest_files;
-    let current_version = inspection.current_version;
-
-    let target_version =
-        resolve_target_version(cli.target_version.as_deref(), &current_version, cli.yes)?;
-    let tag_name = render_template(&config.git.tag_name, &target_version.to_string());
-    let commit_message = render_template(&config.git.commit_message, &target_version.to_string());
-    let changelog_file = config
-        .changelog
-        .enabled
-        .then(|| root.join(&config.changelog.infile));
-    let package_files = packages
-        .iter()
-        .map(|package| package.package_json.clone())
-        .collect::<Vec<_>>();
-    let cargo_lock_files = cargo_lock_files_for_manifests(&root, &cargo_manifest_files);
-    let extra_version_files = cargo_manifest_files
-        .iter()
-        .chain(cargo_lock_files.iter())
-        .cloned()
-        .collect::<Vec<_>>();
+    let target_version = match (cli.target_version.as_deref(), bump_level) {
+        (Some(version), _) => {
+            resolve_target_version(Some(version), &inspection.current_version, cli.yes)?
+        }
+        (None, Some(level)) => bump_stable(
+            &inspection.current_version,
+            match level {
+                BumpLevel::Patch => BaseBump::Patch,
+                BumpLevel::Minor => BaseBump::Minor,
+                BumpLevel::Major => BaseBump::Major,
+            },
+        ),
+        (None, None) => resolve_target_version(None, &inspection.current_version, cli.yes)?,
+    };
+    let group = cli.group.clone().unwrap_or_else(|| {
+        let stem = config_path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("default");
+        if stem == "verso" {
+            "default".to_owned()
+        } else {
+            stem.strip_prefix("verso.").unwrap_or(stem).to_owned()
+        }
+    });
+    let mut release_plan = plan::build(
+        &inspection,
+        &absolute_config_path,
+        group,
+        target_version,
+        mode,
+        Vec::new(),
+    )?;
+    if cli.dry_run {
+        release_plan.warnings = dry_run_warnings(&root, release_plan.tag_name.as_deref())?;
+    }
 
     if cli.dry_run {
-        let warnings = dry_run_warnings(&root, &tag_name)?;
-        let plan = ReleasePlan {
-            current_version,
-            target_version,
-            package_files,
-            extra_version_files,
-            changelog_file,
-            commit_message,
-            tag_name,
-            hooks: planned_hooks(&config.hooks),
-            warnings,
-        };
         if cli.json {
-            println!("{}", render_dry_run_json(&root, &plan));
+            println!("{}", render_dry_run_json(&root, &release_plan));
         } else if stdout_supports_color() {
-            print!("{}", render_dry_run_styled(&root, &plan));
+            print!("{}", render_dry_run_styled(&root, &release_plan));
         } else {
-            print!("{}", render_dry_run(&root, &plan));
+            print!("{}", render_dry_run(&root, &release_plan));
         }
         return Ok(());
     }
 
-    let upstream = git::release_upstream(&root)?;
-    if config.git.require_clean_worktree {
-        if !git::is_worktree_clean(&root)? {
-            return Err(dirty_worktree_error());
-        }
-    } else {
-        if !git::is_index_clean(&root)? {
-            return Err(dirty_index_error());
-        }
-        let release_paths = package_files
-            .iter()
-            .chain(extra_version_files.iter())
-            .chain(changelog_file.iter())
-            .cloned()
-            .collect::<Vec<_>>();
-        let release_paths = relative_path_strings(&root, &release_paths);
-        if !git::are_paths_clean(&root, &release_paths)? {
-            return Err(dirty_release_files_error());
-        }
-    }
-    if git::tag_exists(&root, &tag_name)? {
-        return Err(existing_tag_error(&tag_name));
+    if mode == PlanMode::Bump && release_plan.file_changes.is_empty() {
+        return Err(format!(
+            "no version files need updating to {}",
+            release_plan.target_version
+        ));
     }
 
-    let changelog_entry = if changelog_file.is_some() {
-        let previous_tag = previous_tag(&root, &config.git.tag_name)?;
-        let commits = changelog::commits_since(&root, previous_tag.as_deref())?;
-        let repo_slug =
-            git::remote_origin_url(&root).and_then(|remote| changelog::infer_github_slug(&remote));
-        Some(render_changelog_entry(
-            &target_version.to_string(),
-            previous_tag.as_deref(),
-            &tag_name,
-            &commits,
-            repo_slug.as_deref(),
-        ))
+    let before_head =
+        planned_head.ok_or_else(|| "release execution is missing its lock".to_string())?;
+    let upstream = if mode == PlanMode::Release {
+        Some(git::release_upstream(&root)?)
     } else {
         None
     };
+    verify_clean_for_plan(&release_plan, &inspection.config)?;
+    if git::current_head(&root)? != before_head {
+        return Err("HEAD changed while preparing the release plan; retry the command".to_string());
+    }
+    if let Some(tag_name) = &release_plan.tag_name {
+        if git::tag_exists(&root, tag_name)? {
+            return Err(existing_tag_error(tag_name));
+        }
+    }
 
-    let before_head = git::current_head(&root)?;
     confirm_release_step(
-        &format!("Modify release files for {target_version}?"),
+        &format!("Modify release files for {}?", release_plan.target_version),
         cli.yes,
     )?;
-    run_hook(&root, "before_version", &config.hooks.before_version)?;
-    let release_files = write_release_files(
-        &root,
-        &packages,
-        &cargo_manifest_files,
-        &cargo_lock_files,
-        changelog_file.as_deref(),
-        &target_version,
-        changelog_entry.as_deref(),
-    )?;
-    if let Err(error) = run_hook(&root, "after_version", &config.hooks.after_version) {
-        return Err(rollback_add_failure(&root, &release_files, error));
+    let mut active = transaction::begin(&root, release_plan, before_head, upstream)?;
+    match execute_transaction(&mut active, cli.yes, false) {
+        Ok(()) => Ok(()),
+        Err(failure) if failure.rollback => {
+            let verify_remote = active.plan.mode == PlanMode::Release;
+            let rollback = abort_transaction(&mut active, verify_remote);
+            Err(match rollback {
+                Ok(()) => failure.message,
+                Err(rollback_error) => {
+                    format!("{}; rollback failed: {rollback_error}", failure.message)
+                }
+            })
+        }
+        Err(failure) => Err(failure.message),
     }
-    confirm_release_step(
-        &format!("Commit release files with \"{commit_message}\"?"),
-        cli.yes,
-    )?;
-    if let Err(error) = run_hook(&root, "before_commit", &config.hooks.before_commit) {
-        return Err(rollback_commit_failure(&root, &release_files, error));
+}
+
+pub fn transaction_status(config_path: &Path, json: bool) -> Result<(), String> {
+    let root = release_root(config_path)?;
+    let active = transaction::load(&root)?;
+    if let Some(active) = &active {
+        verify_transaction_config(active, config_path)?;
     }
-    if let Err(error) = git_add_release_files(&root, &release_files.changed_paths) {
-        return Err(rollback_add_failure(&root, &release_files, error));
+    print!("{}", transaction::render_status(active.as_ref(), json));
+    Ok(())
+}
+
+pub fn resume(config_path: &Path, args: &ResumeArgs) -> Result<(), String> {
+    let root = release_root(config_path)?;
+    let _lock = transaction::lock(&root)?;
+    let mut active = transaction::require(&root)?;
+    verify_transaction_config(&active, config_path)?;
+    if active.aborting {
+        abort_transaction(&mut active, false)?;
+        println!("Completed the interrupted Verso rollback.");
+        return Ok(());
     }
-    if let Err(error) = git::git(&root, &["commit", "-m", &commit_message]) {
-        return Err(rollback_commit_failure(&root, &release_files, error));
+    resolve_interrupted_hook(&mut active, args)?;
+    execute_transaction(&mut active, true, true).map_err(|failure| failure.message)
+}
+
+fn resolve_interrupted_hook(
+    active: &mut ReleaseTransaction,
+    args: &ResumeArgs,
+) -> Result<(), String> {
+    match (active.active_hook.clone(), args.retry_hook, args.skip_hook) {
+        (Some(_), true, false) => transaction::retry_active_hook(active),
+        (Some(hook), false, true) => transaction::finish_hook(active, &hook),
+        (Some(hook), false, false) => Err(format!(
+            "hook {hook} was interrupted and its outcome is unknown\n\nhelp: inspect its side effects, then run `verso resume --retry-hook` to run it again or `verso resume --skip-hook` to mark it complete.\nnote: `verso abort` is also available before push."
+        )),
+        (None, true, false) | (None, false, true) => {
+            Err("there is no interrupted hook to recover".to_string())
+        }
+        (_, true, true) => Err("choose only one interrupted hook action".to_string()),
+        (None, false, false) => Ok(()),
     }
-    let release_head = git::current_head(&root)?;
-    if let Err(error) = run_hook(&root, "after_commit", &config.hooks.after_commit) {
-        return Err(rollback_tag_failure(
+}
+
+pub fn abort(config_path: &Path) -> Result<(), String> {
+    let root = release_root(config_path)?;
+    let _lock = transaction::lock(&root)?;
+    let mut active = transaction::require(&root)?;
+    verify_transaction_config(&active, config_path)?;
+    abort_transaction(&mut active, true)?;
+    println!("Aborted Verso transaction and restored release files.");
+    Ok(())
+}
+
+fn verify_transaction_config(
+    active: &ReleaseTransaction,
+    requested_config: &Path,
+) -> Result<(), String> {
+    let requested = if requested_config.is_absolute() {
+        requested_config.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| format!("failed to read current dir: {error}"))?
+            .join(requested_config)
+    };
+    let planned = active.plan.config_path.clone();
+    let requested = requested.canonicalize().unwrap_or(requested);
+    let planned = planned.canonicalize().unwrap_or(planned);
+    if requested == planned {
+        Ok(())
+    } else {
+        Err(format!(
+            "active transaction belongs to group {} ({}) rather than requested config {}\n\nhelp: rerun the recovery command with `--config {}`.",
+            active.plan.group,
+            planned.display(),
+            requested.display(),
+            planned.display()
+        ))
+    }
+}
+
+struct ExecutionFailure {
+    message: String,
+    rollback: bool,
+}
+
+impl ExecutionFailure {
+    fn rollback(message: String) -> Self {
+        Self {
+            message,
+            rollback: true,
+        }
+    }
+
+    fn preserve(message: String) -> Self {
+        Self {
+            message,
+            rollback: false,
+        }
+    }
+}
+
+fn execute_transaction(
+    active: &mut ReleaseTransaction,
+    assume_yes: bool,
+    resuming: bool,
+) -> Result<(), ExecutionFailure> {
+    let root = active.plan.root.clone();
+    if active.push_started
+        && active.stage == TransactionStage::Tagged
+        && remote_contains_release(active).map_err(ExecutionFailure::preserve)?
+    {
+        transaction::set_stage(active, TransactionStage::Pushed)
+            .map_err(ExecutionFailure::preserve)?;
+    }
+    if active.stage != TransactionStage::Pushed
+        && !(active.push_started && active.stage == TransactionStage::Tagged)
+    {
+        reconcile_transaction(active).map_err(ExecutionFailure::preserve)?;
+        verify_expected_head(active).map_err(ExecutionFailure::preserve)?;
+    }
+
+    if active.stage == TransactionStage::Planned {
+        run_transaction_hook(active, "before_version", !resuming)?;
+        transaction::apply_files(active).map_err(ExecutionFailure::rollback)?;
+        transaction::set_stage(active, TransactionStage::FilesApplied)
+            .map_err(ExecutionFailure::preserve)?;
+    }
+
+    if active.stage == TransactionStage::FilesApplied {
+        run_transaction_hook(active, "after_version", !resuming)?;
+        if active.plan.mode == PlanMode::Bump {
+            if transaction::files_state(active).map_err(ExecutionFailure::preserve)?
+                != FilesState::Applied
+            {
+                return Err(ExecutionFailure::preserve(
+                    "release files no longer match the exact bump plan; preserving the transaction for inspection"
+                        .to_string(),
+                ));
+            }
+            let target = active.plan.target_version.clone();
+            transaction::clear(&root).map_err(ExecutionFailure::preserve)?;
+            println!("Updated release files to {target}.");
+            return Ok(());
+        }
+
+        let commit_message = active.plan.commit_message.clone().ok_or_else(|| {
+            ExecutionFailure::preserve("release plan has no commit message".to_string())
+        })?;
+        if !resuming {
+            confirm_release_step(
+                &format!("Commit release files with \"{commit_message}\"?"),
+                assume_yes,
+            )
+            .map_err(ExecutionFailure::preserve)?;
+        }
+        run_transaction_hook(active, "before_commit", !resuming)?;
+        verify_expected_head(active).map_err(ExecutionFailure::preserve)?;
+        let paths = active
+            .plan
+            .file_changes
+            .iter()
+            .map(|change| change.path.clone())
+            .collect::<Vec<_>>();
+        git_add_release_files(&root, &paths).map_err(ExecutionFailure::rollback)?;
+        verify_staged_plan(active).map_err(ExecutionFailure::rollback)?;
+        transaction::start_commit(active).map_err(ExecutionFailure::preserve)?;
+        git::git(
             &root,
-            &release_files,
-            &before_head,
-            &release_head,
-            error,
-        ));
-    }
-    confirm_release_step(&format!("Create tag {tag_name}?"), cli.yes)?;
-    if let Err(error) = run_hook(&root, "before_tag", &config.hooks.before_tag) {
-        return Err(rollback_tag_failure(
-            &root,
-            &release_files,
-            &before_head,
-            &release_head,
-            error,
-        ));
-    }
-    if let Err(error) = git::git(&root, &["tag", "-a", &tag_name, "-m", &tag_name]) {
-        return Err(rollback_tag_failure(
-            &root,
-            &release_files,
-            &before_head,
-            &release_head,
-            error,
-        ));
-    }
-    if let Err(error) = run_hook(&root, "after_tag", &config.hooks.after_tag) {
-        return Err(rollback_after_tag_failure(
-            &root,
-            &release_files,
-            &before_head,
-            &release_head,
-            &tag_name,
-            error,
-        ));
-    }
-    confirm_release_step("Push release commit and tag?", cli.yes)?;
-    if let Err(error) = run_hook(&root, "before_push", &config.hooks.before_push) {
-        return Err(rollback_after_tag_failure(
-            &root,
-            &release_files,
-            &before_head,
-            &release_head,
-            &tag_name,
-            error,
-        ));
-    }
-    git::push_release(&root, &upstream, &tag_name).map_err(|error| {
-        format!(
-            "{error}\n\nnote: Local release commit and tag were created.\nhelp: fix the remote problem, then push the current branch and tag {tag_name}."
+            &["commit", "--cleanup=verbatim", "-m", &commit_message],
         )
-    })?;
-    run_hook(&root, "after_push", &config.hooks.after_push)?;
+        .map_err(ExecutionFailure::rollback)?;
+        let release_head = git::current_head(&root).map_err(ExecutionFailure::preserve)?;
+        if !is_expected_release_commit(active, &release_head).map_err(ExecutionFailure::preserve)? {
+            return Err(ExecutionFailure::preserve(
+                "the created commit does not match the exact release plan; preserving the transaction for inspection"
+                    .to_string(),
+            ));
+        }
+        transaction::set_release_head(active, release_head).map_err(ExecutionFailure::preserve)?;
+    }
+
+    if active.stage == TransactionStage::Committed {
+        run_transaction_hook(active, "after_commit", !resuming)?;
+        let tag_name = active.plan.tag_name.clone().ok_or_else(|| {
+            ExecutionFailure::preserve("release plan has no tag name".to_string())
+        })?;
+        if !resuming {
+            confirm_release_step(&format!("Create tag {tag_name}?"), assume_yes)
+                .map_err(ExecutionFailure::preserve)?;
+        }
+        run_transaction_hook(active, "before_tag", !resuming)?;
+        let release_head = required_release_head(active).map_err(ExecutionFailure::preserve)?;
+        let tag_object = match active.tag_object.clone() {
+            Some(tag_object) => tag_object,
+            None => {
+                if transaction::tag_object(&root, &tag_name)
+                    .map_err(ExecutionFailure::preserve)?
+                    .is_some()
+                {
+                    return Err(ExecutionFailure::preserve(format!(
+                        "tag {tag_name} appeared before Verso created it; refusing to claim it"
+                    )));
+                }
+                let tag_object = git::create_annotated_tag_object(&root, &tag_name, &release_head)
+                    .map_err(ExecutionFailure::rollback)?;
+                transaction::set_tag_object(active, tag_object.clone())
+                    .map_err(ExecutionFailure::preserve)?;
+                tag_object
+            }
+        };
+        match transaction::tag_object(&root, &tag_name).map_err(ExecutionFailure::preserve)? {
+            Some(object) if object == tag_object => {}
+            Some(object) => {
+                return Err(ExecutionFailure::preserve(format!(
+                    "tag {tag_name} has object {object}, expected {tag_object}"
+                )));
+            }
+            None => {
+                git::create_tag_ref(&root, &tag_name, &tag_object)
+                    .map_err(ExecutionFailure::rollback)?;
+            }
+        }
+        verify_release_tag(active).map_err(ExecutionFailure::preserve)?;
+        transaction::set_stage(active, TransactionStage::Tagged)
+            .map_err(ExecutionFailure::preserve)?;
+    }
+
+    if active.stage == TransactionStage::Tagged {
+        run_transaction_hook(active, "after_tag", !resuming)?;
+        if !resuming {
+            confirm_release_step("Push release commit and tag?", assume_yes)
+                .map_err(ExecutionFailure::preserve)?;
+        }
+        run_transaction_hook(active, "before_push", !resuming)?;
+        let tag_name = active.plan.tag_name.clone().ok_or_else(|| {
+            ExecutionFailure::preserve("release plan has no tag name".to_string())
+        })?;
+        let upstream = active.upstream.clone().ok_or_else(|| {
+            ExecutionFailure::preserve("release transaction has no upstream".to_string())
+        })?;
+        let release_head = required_release_head(active).map_err(ExecutionFailure::preserve)?;
+        verify_release_tag(active).map_err(ExecutionFailure::preserve)?;
+        let tag_object = active.tag_object.clone().ok_or_else(|| {
+            ExecutionFailure::preserve("release transaction is missing its tag object".to_string())
+        })?;
+        transaction::start_push(active).map_err(ExecutionFailure::preserve)?;
+        if let Err(error) =
+            git::push_release(&root, &upstream, &release_head, &tag_object, &tag_name)
+        {
+            let journal_error = transaction::fail_push(active).err();
+            let mut message = format!(
+                "{error}\n\nnote: Local release commit and tag were created.\nhelp: fix the remote problem, then run `verso resume`."
+            );
+            if let Some(journal_error) = journal_error {
+                message.push_str(&format!(
+                    "\nnote: failed to record push failure: {journal_error}"
+                ));
+            }
+            return Err(ExecutionFailure::preserve(message));
+        }
+        transaction::set_stage(active, TransactionStage::Pushed)
+            .map_err(ExecutionFailure::preserve)?;
+    }
+
+    if active.stage == TransactionStage::Pushed {
+        run_transaction_hook(active, "after_push", false)?;
+        transaction::clear(&root).map_err(ExecutionFailure::preserve)?;
+    }
 
     Ok(())
+}
+
+fn run_transaction_hook(
+    active: &mut ReleaseTransaction,
+    name: &str,
+    rollback_on_failure: bool,
+) -> Result<(), ExecutionFailure> {
+    let Some(command) = active
+        .plan
+        .hooks
+        .iter()
+        .find(|hook| hook.name == name)
+        .map(|hook| hook.command.clone())
+    else {
+        return Ok(());
+    };
+    if !transaction::start_hook(active, name).map_err(ExecutionFailure::preserve)? {
+        return Ok(());
+    }
+    if let Err(message) = run_hook(&active.plan.root, name, &Some(command)) {
+        return Err(if rollback_on_failure {
+            ExecutionFailure::rollback(message)
+        } else {
+            ExecutionFailure::preserve(message)
+        });
+    }
+    transaction::finish_hook(active, name).map_err(ExecutionFailure::preserve)?;
+    if active.stage == TransactionStage::Pushed {
+        Ok(())
+    } else {
+        verify_expected_head(active).map_err(ExecutionFailure::preserve)
+    }
+}
+
+fn reconcile_transaction(active: &mut ReleaseTransaction) -> Result<(), String> {
+    let root = active.plan.root.clone();
+    if active.stage == TransactionStage::Planned {
+        match transaction::files_state(active)? {
+            FilesState::Applied => {
+                transaction::set_stage(active, TransactionStage::FilesApplied)?;
+            }
+            FilesState::Original => {}
+            FilesState::Mixed => {
+                transaction::apply_files(active)?;
+                transaction::set_stage(active, TransactionStage::FilesApplied)?;
+            }
+        }
+    }
+    if active.stage == TransactionStage::FilesApplied {
+        match transaction::files_state(active)? {
+            FilesState::Applied => {}
+            FilesState::Original => {
+                if !active.plan.file_changes.is_empty() {
+                    return Err(
+                        "release files were restored while the transaction remained active"
+                            .to_string(),
+                    );
+                }
+            }
+            FilesState::Mixed => {
+                return Err(
+                    "release files are only partially applied; refusing to commit a mixed version set\n\nhelp: run `verso abort` to complete the rollback."
+                        .to_string(),
+                );
+            }
+        }
+        let current_head = git::current_head(&root)?;
+        if current_head != active.before_head {
+            if is_expected_release_commit(active, &current_head)? {
+                transaction::set_release_head(active, current_head)?;
+            } else {
+                return Err(format!(
+                    "HEAD moved from {} to {} during the transaction",
+                    active.before_head, current_head
+                ));
+            }
+        }
+    }
+    if active.stage == TransactionStage::Committed {
+        let release_head = required_release_head(active)?;
+        let current_head = git::current_head(&root)?;
+        if current_head != release_head {
+            return Err(format!(
+                "HEAD moved from release commit {release_head} to {current_head}"
+            ));
+        }
+        if let Some(tag_name) = &active.plan.tag_name {
+            match (
+                active.tag_object.as_deref(),
+                transaction::tag_object(&root, tag_name)?,
+            ) {
+                (Some(expected), Some(actual)) if actual == expected => {
+                    verify_release_tag(active)?;
+                    transaction::set_stage(active, TransactionStage::Tagged)?;
+                }
+                (Some(_), None) | (None, None) => {}
+                (Some(expected), Some(actual)) => {
+                    return Err(format!(
+                        "tag {tag_name} has object {actual}, expected {expected}"
+                    ));
+                }
+                (None, Some(_)) => {
+                    return Err(format!(
+                        "tag {tag_name} appeared before Verso created it; refusing to claim it"
+                    ));
+                }
+            }
+        }
+    }
+    if active.stage == TransactionStage::Tagged {
+        let release_head = required_release_head(active)?;
+        let current_head = git::current_head(&root)?;
+        if current_head != release_head {
+            return Err(format!(
+                "HEAD moved from release commit {release_head} to {current_head}"
+            ));
+        }
+        verify_release_tag(active)?;
+    }
+    Ok(())
+}
+
+fn verify_expected_head(active: &ReleaseTransaction) -> Result<(), String> {
+    let current_head = git::current_head(&active.plan.root)?;
+    let expected = active
+        .release_head
+        .as_deref()
+        .unwrap_or(&active.before_head);
+    if current_head == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "HEAD moved from expected commit {expected} to {current_head}; refusing to continue the transaction"
+        ))
+    }
+}
+
+fn verify_staged_plan(active: &ReleaseTransaction) -> Result<(), String> {
+    let root = &active.plan.root;
+    let output = git::git(root, &["diff", "--cached", "--name-only", "-z"])?;
+    let mut actual = output
+        .stdout
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let mut expected = relative_path_strings(
+        root,
+        &active
+            .plan
+            .file_changes
+            .iter()
+            .map(|change| change.path.clone())
+            .collect::<Vec<_>>(),
+    );
+    actual.sort();
+    expected.sort();
+    if actual != expected {
+        return Err(format!(
+            "Git index does not match the release plan; staged paths: {}; planned paths: {}",
+            actual.join(", "),
+            expected.join(", ")
+        ));
+    }
+    for change in &active.plan.file_changes {
+        let relative = relative_path(root, &change.path).display().to_string();
+        let expected = expected_plan_entry(active, change)?;
+        let staged = index_entry(root, &relative)?
+            .ok_or_else(|| format!("planned path {relative} is missing from the Git index"))?;
+        if staged != expected {
+            return Err(format!(
+                "staged mode or content for {relative} does not match the release plan"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn is_expected_release_commit(
+    active: &ReleaseTransaction,
+    current_head: &str,
+) -> Result<bool, String> {
+    if active.plan.mode != PlanMode::Release {
+        return Ok(false);
+    }
+    let output = git::git(
+        &active.plan.root,
+        &["log", "-1", "--format=%P%x00%B%x00", current_head],
+    )?;
+    let mut fields = output.stdout.splitn(3, '\0');
+    let (Some(parents), Some(message), Some(_)) = (fields.next(), fields.next(), fields.next())
+    else {
+        return Ok(false);
+    };
+    let expected_message = format!("{}\n", active.plan.commit_message.as_deref().unwrap_or(""));
+    if parents.trim() != active.before_head || message != expected_message {
+        return Ok(false);
+    }
+    let output = git::git(
+        &active.plan.root,
+        &[
+            "diff",
+            "--name-only",
+            "-z",
+            &active.before_head,
+            current_head,
+            "--",
+        ],
+    )?;
+    let mut actual = output
+        .stdout
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let mut expected = relative_path_strings(
+        &active.plan.root,
+        &active
+            .plan
+            .file_changes
+            .iter()
+            .map(|change| change.path.clone())
+            .collect::<Vec<_>>(),
+    );
+    actual.sort();
+    expected.sort();
+    if actual != expected {
+        return Ok(false);
+    }
+    for change in &active.plan.file_changes {
+        let relative = relative_path(&active.plan.root, &change.path)
+            .display()
+            .to_string();
+        if tree_entry(&active.plan.root, current_head, &relative)?
+            != Some(expected_plan_entry(active, change)?)
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn expected_plan_entry(
+    active: &ReleaseTransaction,
+    change: &crate::plan::PlannedFileChange,
+) -> Result<(String, String), String> {
+    let relative = relative_path(&active.plan.root, &change.path)
+        .display()
+        .to_string();
+    let mode = tree_entry(&active.plan.root, &active.before_head, &relative)?
+        .map(|(mode, _)| mode)
+        .unwrap_or_else(|| "100644".to_string());
+    let object = git::hash_object(&active.plan.root, &relative, change.after.as_bytes())?;
+    Ok((mode, object))
+}
+
+fn index_entry(root: &Path, relative: &str) -> Result<Option<(String, String)>, String> {
+    let output = git::git(root, &["ls-files", "--stage", "--", relative])?;
+    parse_git_entry(&output.stdout, false)
+}
+
+fn tree_entry(
+    root: &Path,
+    revision: &str,
+    relative: &str,
+) -> Result<Option<(String, String)>, String> {
+    let output = git::git(root, &["ls-tree", revision, "--", relative])?;
+    parse_git_entry(&output.stdout, true)
+}
+
+fn parse_git_entry(output: &str, has_type: bool) -> Result<Option<(String, String)>, String> {
+    let Some(metadata) = output.split_once('\t').map(|(metadata, _)| metadata) else {
+        return Ok(None);
+    };
+    let fields = metadata.split_whitespace().collect::<Vec<_>>();
+    let object_index = usize::from(has_type) + 1;
+    let mode = fields.first().copied();
+    let object = fields.get(object_index).copied();
+    match (mode, object) {
+        (Some(mode), Some(object)) => Ok(Some((mode.to_string(), object.to_string()))),
+        _ => Err(format!("failed to parse Git tree entry: {output:?}")),
+    }
+}
+
+fn required_release_head(active: &ReleaseTransaction) -> Result<String, String> {
+    active
+        .release_head
+        .clone()
+        .ok_or_else(|| "release transaction is missing its release commit".to_string())
+}
+
+fn verify_release_tag(active: &ReleaseTransaction) -> Result<(), String> {
+    let root = &active.plan.root;
+    let tag_name = active
+        .plan
+        .tag_name
+        .as_deref()
+        .ok_or_else(|| "release plan has no tag name".to_string())?;
+    let tag_object = active
+        .tag_object
+        .as_deref()
+        .ok_or_else(|| "release transaction is missing its tag object".to_string())?;
+    let actual_object = transaction::tag_object(root, tag_name)?
+        .ok_or_else(|| format!("release tag {tag_name} is missing"))?;
+    if actual_object != tag_object {
+        return Err(format!(
+            "tag {tag_name} has object {actual_object}, expected {tag_object}"
+        ));
+    }
+    let release_head = required_release_head(active)?;
+    if transaction::tag_target(root, tag_name)?.as_deref() != Some(release_head.as_str()) {
+        return Err(format!(
+            "tag {tag_name} does not point to release commit {release_head}"
+        ));
+    }
+    Ok(())
+}
+
+fn verify_clean_for_plan(plan: &ReleasePlan, config: &config::Config) -> Result<(), String> {
+    let root = &plan.root;
+    if plan.mode == PlanMode::Release && config.git.require_clean_worktree {
+        if !git::is_worktree_clean(root)? {
+            return Err(dirty_worktree_error());
+        }
+        return Ok(());
+    }
+    if plan.mode == PlanMode::Release && !git::is_index_clean(root)? {
+        return Err(dirty_index_error());
+    }
+    let paths = relative_path_strings(
+        root,
+        &plan
+            .file_changes
+            .iter()
+            .map(|change| change.path.clone())
+            .collect::<Vec<_>>(),
+    );
+    if !git::are_paths_clean(root, &paths)? {
+        return Err(dirty_release_files_error());
+    }
+    Ok(())
+}
+
+fn abort_transaction(active: &mut ReleaseTransaction, verify_push: bool) -> Result<(), String> {
+    if active.stage == TransactionStage::Pushed {
+        return Err(
+            "cannot abort a release that was pushed\n\nhelp: finish it with `verso resume`."
+                .to_string(),
+        );
+    }
+    let root = active.plan.root.clone();
+    if active.push_started {
+        return Err(
+            "cannot automatically abort after a push was started because its outcome may be unknown\n\nhelp: run `verso resume` to retry the exact release refs, or inspect the remote and recover manually."
+                .to_string(),
+        );
+    }
+    let current_head = git::current_head(&root)?;
+    if active.release_head.is_none()
+        && active.plan.mode == PlanMode::Release
+        && current_head != active.before_head
+        && is_expected_release_commit(active, &current_head)?
+    {
+        active.release_head = Some(current_head.clone());
+    }
+    let verify_remote = verify_push
+        && active.plan.mode == PlanMode::Release
+        && (active.commit_started
+            || active.release_head.is_some()
+            || active.tag_object.is_some()
+            || active.active_hook.is_some()
+            || !active.completed_hooks.is_empty());
+    transaction::start_abort(active, verify_remote)?;
+    if active.abort_remote_check {
+        if remote_may_contain_release(active)? {
+            active.stage = TransactionStage::Pushed;
+            active.aborting = false;
+            active.abort_remote_check = false;
+            transaction::save(active)?;
+            return Err(
+                "cannot abort because the exact release refs are already present on the remote\n\nhelp: run `verso resume` to finish the pushed release."
+                    .to_string(),
+            );
+        }
+        transaction::finish_abort_remote_check(active)?;
+    }
+
+    let release_head = active.release_head.clone();
+    if let Some(release_head) = &release_head {
+        if current_head != *release_head && current_head != active.before_head {
+            return Err(format!(
+                "refusing to abort because HEAD moved to {current_head}; expected {release_head} or {}",
+                active.before_head
+            ));
+        }
+    } else if current_head != active.before_head {
+        return Err(format!(
+            "refusing to abort because HEAD moved from {} to {current_head}",
+            active.before_head
+        ));
+    }
+    transaction::files_state(active)?;
+
+    if let (Some(tag_name), Some(expected_object)) = (&active.plan.tag_name, &active.tag_object) {
+        if let Some(actual_object) = transaction::tag_object(&root, tag_name)? {
+            if actual_object != *expected_object {
+                return Err(format!(
+                    "refusing to delete tag {tag_name}; it has object {actual_object}, expected {expected_object}"
+                ));
+            }
+            git::delete_tag_ref(&root, tag_name, expected_object)?;
+        }
+    }
+    if current_head != active.before_head {
+        git::compare_and_swap_head(&root, &active.before_head, &current_head)?;
+    }
+    let paths = relative_path_strings(
+        &root,
+        &active
+            .plan
+            .file_changes
+            .iter()
+            .map(|change| change.path.clone())
+            .collect::<Vec<_>>(),
+    );
+    git::unstage_paths(&root, &paths)?;
+    transaction::restore_files(active)?;
+    transaction::clear(&root)
+}
+
+fn remote_contains_release(active: &ReleaseTransaction) -> Result<bool, String> {
+    let release_head = required_release_head(active)?;
+    let tag_object = active
+        .tag_object
+        .as_deref()
+        .ok_or_else(|| "release transaction is missing its tag object".to_string())?;
+    let refs = remote_release_refs(active)?;
+    remote_release_is_published(active, &refs, &release_head, tag_object)
+}
+
+fn remote_may_contain_release(active: &ReleaseTransaction) -> Result<bool, String> {
+    let refs = remote_release_refs(active)?;
+    if let (Some(release_head), Some(tag_object)) =
+        (active.release_head.as_deref(), active.tag_object.as_deref())
+    {
+        if remote_release_is_published(active, &refs, release_head, tag_object)? {
+            return Ok(true);
+        }
+    }
+    if refs.tag_object.is_some() || refs.tag_target.is_some() {
+        return Err(
+            "the planned release tag already exists on the remote but was not created by this transaction\n\nhelp: inspect the remote tag before deciding how to recover."
+                .to_string(),
+        );
+    }
+    let upstream = active
+        .upstream
+        .as_ref()
+        .ok_or_else(|| "release transaction has no upstream".to_string())?;
+    if let Some(release_head) = active.release_head.as_deref() {
+        if let Some(branch) = refs.branch.as_deref() {
+            if branch == release_head
+                || git::remote_branch_contains(&active.plan.root, upstream, release_head, branch)?
+            {
+                return Err(format!(
+                    "remote branch {} already contains release commit {release_head}\n\nhelp: inspect the remote refs before deciding how to recover.",
+                    upstream.branch
+                ));
+            }
+        }
+    } else if refs
+        .branch
+        .as_deref()
+        .is_some_and(|branch| branch != upstream.branch_target)
+    {
+        return Err(format!(
+            "remote branch {} moved during the release transaction\n\nhelp: inspect the remote refs before deciding how to recover.",
+            upstream.branch
+        ));
+    }
+    Ok(false)
+}
+
+struct RemoteReleaseRefs {
+    branch: Option<String>,
+    tag_object: Option<String>,
+    tag_target: Option<String>,
+}
+
+fn remote_release_refs(active: &ReleaseTransaction) -> Result<RemoteReleaseRefs, String> {
+    let upstream = active
+        .upstream
+        .as_ref()
+        .ok_or_else(|| "release transaction has no upstream".to_string())?;
+    let branch_ref = format!("refs/heads/{}", upstream.branch);
+    let tag_name = active
+        .plan
+        .tag_name
+        .as_deref()
+        .ok_or_else(|| "release plan has no tag name".to_string())?;
+    let tag_ref = format!("refs/tags/{tag_name}");
+    let peeled_tag_ref = format!("refs/tags/{tag_name}^{{}}");
+    let output = git::git(
+        &active.plan.root,
+        &[
+            "ls-remote",
+            "--",
+            &upstream.push_url,
+            &branch_ref,
+            &tag_ref,
+            &peeled_tag_ref,
+        ],
+    )
+    .map_err(|error| {
+        format!(
+            "cannot inspect the remote release refs: {error}\n\nhelp: restore remote access, then retry the current recovery command."
+        )
+    })?;
+    let mut branch_target = None;
+    let mut tag_object_target = None;
+    let mut tag_target = None;
+    for line in output.stdout.lines() {
+        let mut fields = line.split_whitespace();
+        let object = fields.next();
+        match fields.next() {
+            Some(reference) if reference == branch_ref => branch_target = object.map(str::to_owned),
+            Some(reference) if reference == tag_ref => {
+                tag_object_target = object.map(str::to_owned)
+            }
+            Some(reference) if reference == peeled_tag_ref => {
+                tag_target = object.map(str::to_owned)
+            }
+            _ => {}
+        }
+    }
+    Ok(RemoteReleaseRefs {
+        branch: branch_target,
+        tag_object: tag_object_target,
+        tag_target,
+    })
+}
+
+fn remote_release_is_published(
+    active: &ReleaseTransaction,
+    refs: &RemoteReleaseRefs,
+    release_head: &str,
+    tag_object: &str,
+) -> Result<bool, String> {
+    let upstream = active
+        .upstream
+        .as_ref()
+        .ok_or_else(|| "release transaction has no upstream".to_string())?;
+    match (
+        refs.branch.as_deref(),
+        refs.tag_object.as_deref(),
+        refs.tag_target.as_deref(),
+    ) {
+        (Some(branch), Some(object), Some(tag))
+            if object == tag_object && tag == release_head =>
+        {
+            if branch == release_head
+                || git::remote_branch_contains(
+                    &active.plan.root,
+                    upstream,
+                    release_head,
+                    branch,
+                )?
+            {
+                Ok(true)
+            } else {
+                Err(format!(
+                    "remote tag is published but branch {} does not contain release commit {release_head}\n\nhelp: inspect the remote refs and recover manually before resuming.",
+                    upstream.branch
+                ))
+            }
+        }
+        (branch, None, None) if branch != Some(release_head) => Ok(false),
+        (branch, object, tag) => Err(format!(
+            "remote release refs are partial or moved; expected exact tag object {tag_object}, peeled tag at {release_head}, and a remote branch, found branch {}, tag object {}, and peeled tag {}\n\nhelp: inspect the remote refs and recover manually before resuming.",
+            branch.unwrap_or("missing"),
+            object.unwrap_or("missing"),
+            tag.unwrap_or("missing")
+        )),
+    }
 }
 
 fn resolve_target_version(
@@ -557,27 +1355,6 @@ fn run_hook(root: &Path, name: &str, command: &Option<String>) -> Result<(), Str
     }
 }
 
-fn planned_hooks(hooks: &config::HooksConfig) -> Vec<PlannedHook> {
-    [
-        ("before_version", &hooks.before_version),
-        ("after_version", &hooks.after_version),
-        ("before_commit", &hooks.before_commit),
-        ("after_commit", &hooks.after_commit),
-        ("before_tag", &hooks.before_tag),
-        ("after_tag", &hooks.after_tag),
-        ("before_push", &hooks.before_push),
-        ("after_push", &hooks.after_push),
-    ]
-    .into_iter()
-    .filter_map(|(name, command)| {
-        command.as_ref().map(|command| PlannedHook {
-            name: name.to_owned(),
-            command: command.clone(),
-        })
-    })
-    .collect()
-}
-
 fn shell_command(command: &str) -> Command {
     #[cfg(windows)]
     {
@@ -647,14 +1424,16 @@ pub(crate) fn current_version(
         .ok_or_else(|| "no package version discovered".to_string())
 }
 
-fn dry_run_warnings(root: &Path, tag_name: &str) -> Result<Vec<String>, String> {
+fn dry_run_warnings(root: &Path, tag_name: Option<&str>) -> Result<Vec<String>, String> {
     let mut warnings = Vec::new();
 
     if !git::is_worktree_clean(root)? {
         warnings.push(dirty_worktree_warning());
     }
-    if git::tag_exists(root, tag_name)? {
-        warnings.push(existing_tag_warning(tag_name));
+    if let Some(tag_name) = tag_name {
+        if git::tag_exists(root, tag_name)? {
+            warnings.push(existing_tag_warning(tag_name));
+        }
     }
 
     Ok(warnings)
@@ -719,27 +1498,6 @@ fn existing_tag_error(tag_name: &str) -> String {
     .join("\n")
 }
 
-fn previous_tag(root: &Path, tag_template: &str) -> Result<Option<String>, String> {
-    let Some((prefix, suffix)) = tag_template.split_once("${version}") else {
-        return Ok(None);
-    };
-
-    let output = git::git(root, &["tag", "--merged", "HEAD", "--list"])?;
-    Ok(output
-        .stdout
-        .lines()
-        .map(str::trim)
-        .filter_map(|tag| {
-            let version = tag
-                .strip_prefix(prefix)?
-                .strip_suffix(suffix)
-                .and_then(|version| Version::parse(version).ok())?;
-            Some((version, tag.to_string()))
-        })
-        .max_by(|(left_version, _), (right_version, _)| left_version.cmp(right_version))
-        .map(|(_version, tag)| tag))
-}
-
 pub(crate) fn verify_cargo_manifest_versions(
     root: &Path,
     manifest_files: &[PathBuf],
@@ -748,6 +1506,7 @@ pub(crate) fn verify_cargo_manifest_versions(
     let mut mismatches = Vec::new();
 
     for manifest_path in manifest_files {
+        crate::workspace::validate_release_path(root, manifest_path)?;
         let contents = fs::read_to_string(manifest_path)
             .map_err(|error| format!("failed to read {}: {error}", manifest_path.display()))?;
         let package = cargo_manifest::read_package_version(manifest_path, &contents)?;
@@ -765,176 +1524,9 @@ pub(crate) fn verify_cargo_manifest_versions(
     }
 
     Err(format!(
-        "inconsistent versions: {}; configured Cargo manifests must match release version {expected}. Set version.require_consistent_versions = false to skip this check.",
+        "inconsistent versions: {}; configured Cargo manifests must match release version {expected}. Use a separate Verso config for each independent version group.",
         mismatches.join("; ")
     ))
-}
-
-fn cargo_lock_files_for_manifests(root: &Path, manifest_files: &[PathBuf]) -> Vec<PathBuf> {
-    let mut lock_files = manifest_files
-        .iter()
-        .filter_map(|manifest_path| cargo_lock_file_for_manifest(root, manifest_path))
-        .collect::<Vec<_>>();
-    lock_files.sort();
-    lock_files.dedup();
-    lock_files
-}
-
-fn cargo_lock_file_for_manifest(root: &Path, manifest_path: &Path) -> Option<PathBuf> {
-    let mut current = manifest_path.parent()?;
-
-    loop {
-        let lock_path = current.join("Cargo.lock");
-        if lock_path.exists() {
-            return Some(lock_path);
-        }
-
-        if current == root {
-            return None;
-        }
-
-        current = current.parent()?;
-    }
-}
-
-struct ReleaseFileChanges {
-    changed_paths: Vec<PathBuf>,
-    change_set: ChangeSet,
-}
-
-fn write_release_files(
-    root: &Path,
-    packages: &[PackageFile],
-    cargo_manifest_files: &[PathBuf],
-    cargo_lock_files: &[PathBuf],
-    changelog_file: Option<&Path>,
-    target_version: &Version,
-    changelog_entry: Option<&str>,
-) -> Result<ReleaseFileChanges, String> {
-    let mut paths = packages
-        .iter()
-        .map(|package| package.package_json.clone())
-        .collect::<Vec<_>>();
-    paths.extend(cargo_manifest_files.iter().cloned());
-    paths.extend(cargo_lock_files.iter().cloned());
-    paths.extend(changelog_file.map(Path::to_path_buf));
-
-    let mut changes = ChangeSet::snapshot(&paths)?;
-    let result = (|| {
-        let mut changed_paths = Vec::new();
-        for package in packages {
-            let contents = fs::read_to_string(&package.package_json).map_err(|error| {
-                format!("failed to read {}: {error}", package.package_json.display())
-            })?;
-            let updated = package_json::replace_manifest_version_preserving_style(
-                &package.package_json,
-                &contents,
-                target_version,
-            )?;
-            if updated != contents {
-                changes.write(&package.package_json, updated.as_bytes())?;
-                changed_paths.push(package.package_json.clone());
-            }
-        }
-
-        let mut cargo_package_updates = Vec::new();
-        for manifest_path in cargo_manifest_files {
-            let contents = fs::read_to_string(manifest_path)
-                .map_err(|error| format!("failed to read {}: {error}", manifest_path.display()))?;
-            let package = cargo_manifest::read_package_version(manifest_path, &contents)?;
-            let updated = cargo_manifest::replace_package_version_preserving_style(
-                manifest_path,
-                &contents,
-                target_version,
-            )?;
-            if updated != contents {
-                changes.write(manifest_path, updated.as_bytes())?;
-                changed_paths.push(manifest_path.clone());
-                cargo_package_updates
-                    .push((package, cargo_lock_file_for_manifest(root, manifest_path)));
-            }
-        }
-
-        for lock_path in cargo_lock_files {
-            let contents = fs::read_to_string(lock_path)
-                .map_err(|error| format!("failed to read {}: {error}", lock_path.display()))?;
-            let mut updated = contents.clone();
-            for (package, package_lock_path) in &cargo_package_updates {
-                if package_lock_path.as_ref() != Some(lock_path) {
-                    continue;
-                }
-                updated = cargo_manifest::replace_lock_package_version_preserving_style(
-                    lock_path,
-                    &updated,
-                    &package.name,
-                    &package.version,
-                    target_version,
-                )?;
-            }
-            if updated != contents {
-                changes.write(lock_path, updated.as_bytes())?;
-                changed_paths.push(lock_path.clone());
-            }
-        }
-
-        if let (Some(changelog_file), Some(changelog_entry)) = (changelog_file, changelog_entry) {
-            let existing_changelog = read_changelog(changelog_file)?;
-            let changelog = insert_changelog_entry(&existing_changelog, changelog_entry);
-            if changelog != existing_changelog {
-                changes.write(changelog_file, changelog.as_bytes())?;
-                changed_paths.push(changelog_file.to_path_buf());
-            }
-        }
-
-        Ok(changed_paths)
-    })();
-
-    match result {
-        Ok(changed_paths) => Ok(ReleaseFileChanges {
-            changed_paths,
-            change_set: changes,
-        }),
-        Err(error) => match changes.rollback() {
-            Ok(_restored) => Err(error),
-            Err(rollback_error) => Err(format!("{error}; rollback failed: {rollback_error}")),
-        },
-    }
-}
-
-fn read_changelog(path: &Path) -> Result<String, String> {
-    match fs::read_to_string(path) {
-        Ok(contents) => Ok(contents),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            Ok("# Changelog\n".to_string())
-        }
-        Err(error) => Err(format!("failed to read {}: {error}", path.display())),
-    }
-}
-
-fn insert_changelog_entry(existing: &str, entry: &str) -> String {
-    let entry = entry.trim_end();
-
-    let (first_line, body) = existing
-        .split_once('\n')
-        .map_or((existing, ""), |(first_line, body)| (first_line, body));
-
-    if first_line.trim_end() == "# Changelog" {
-        let heading = "# Changelog";
-        let body = body
-            .strip_prefix('\r')
-            .unwrap_or(body)
-            .trim_start_matches('\n');
-
-        if body.is_empty() {
-            format!("{heading}\n\n{entry}\n")
-        } else {
-            format!("{heading}\n\n{entry}\n\n{body}")
-        }
-    } else if existing.trim().is_empty() {
-        format!("# Changelog\n\n{entry}\n")
-    } else {
-        format!("# Changelog\n\n{entry}\n\n{existing}")
-    }
 }
 
 fn git_add_release_files(root: &Path, files: &[PathBuf]) -> Result<(), String> {
@@ -958,115 +1550,6 @@ fn git_add_release_files(root: &Path, files: &[PathBuf]) -> Result<(), String> {
     Ok(())
 }
 
-fn rollback_commit_failure(
-    root: &Path,
-    release_files: &ReleaseFileChanges,
-    error: String,
-) -> String {
-    let paths = relative_path_strings(root, &release_files.changed_paths);
-    let unstage_result = git::unstage_paths(root, &paths);
-    let rollback_result = release_files.change_set.rollback();
-
-    append_best_effort_errors(error, unstage_result, rollback_result)
-}
-
-fn rollback_add_failure(root: &Path, release_files: &ReleaseFileChanges, error: String) -> String {
-    let paths = relative_path_strings(root, &release_files.changed_paths);
-    let unstage_result = git::unstage_paths(root, &paths);
-    let rollback_result = release_files.change_set.rollback();
-
-    append_best_effort_errors(error, unstage_result, rollback_result)
-}
-
-fn rollback_tag_failure(
-    root: &Path,
-    release_files: &ReleaseFileChanges,
-    before_head: &str,
-    release_head: &str,
-    error: String,
-) -> String {
-    match git::current_head(root) {
-        Ok(current_head) if current_head == release_head => {
-            let reset_result = git::reset_soft(root, before_head);
-            let paths = relative_path_strings(root, &release_files.changed_paths);
-            let unstage_result = git::unstage_paths(root, &paths);
-            let rollback_result = release_files.change_set.rollback();
-
-            append_tag_rollback_errors(error, reset_result, unstage_result, rollback_result)
-        }
-        Ok(current_head) => {
-            let rollback_result = release_files.change_set.rollback();
-            let rollback_note = match rollback_result {
-                Ok(_restored) => String::new(),
-                Err(rollback_error) => format!("; file rollback failed: {rollback_error}"),
-            };
-            format!(
-                "{error}; HEAD moved unexpectedly from release commit {release_head} to {current_head}; skipped git reset{rollback_note}"
-            )
-        }
-        Err(head_error) => {
-            let rollback_result = release_files.change_set.rollback();
-            let rollback_note = match rollback_result {
-                Ok(_restored) => String::new(),
-                Err(rollback_error) => format!("; file rollback failed: {rollback_error}"),
-            };
-            format!(
-                "{error}; failed to verify HEAD before rollback: {head_error}; skipped git reset{rollback_note}"
-            )
-        }
-    }
-}
-
-fn rollback_after_tag_failure(
-    root: &Path,
-    release_files: &ReleaseFileChanges,
-    before_head: &str,
-    release_head: &str,
-    tag_name: &str,
-    error: String,
-) -> String {
-    let delete_tag_result = git::delete_tag(root, tag_name);
-    let mut message = rollback_tag_failure(root, release_files, before_head, release_head, error);
-    if let Err(delete_tag_error) = delete_tag_result {
-        message.push_str(&format!("; tag cleanup failed: {delete_tag_error}"));
-    }
-    message
-}
-
-fn append_best_effort_errors(
-    error: String,
-    unstage_result: Result<(), String>,
-    rollback_result: Result<Vec<PathBuf>, String>,
-) -> String {
-    let mut message = error;
-    if let Err(unstage_error) = unstage_result {
-        message.push_str(&format!("; unstage failed: {unstage_error}"));
-    }
-    if let Err(rollback_error) = rollback_result {
-        message.push_str(&format!("; rollback failed: {rollback_error}"));
-    }
-    message
-}
-
-fn append_tag_rollback_errors(
-    error: String,
-    reset_result: Result<(), String>,
-    unstage_result: Result<(), String>,
-    rollback_result: Result<Vec<PathBuf>, String>,
-) -> String {
-    let mut message = error;
-    if let Err(reset_error) = reset_result {
-        message.push_str(&format!("; soft reset failed: {reset_error}"));
-    }
-    if let Err(unstage_error) = unstage_result {
-        message.push_str(&format!("; unstage failed: {unstage_error}"));
-    }
-    if let Err(rollback_error) = rollback_result {
-        message.push_str(&format!("; rollback failed: {rollback_error}"));
-    }
-    message
-}
-
 fn relative_path_strings(root: &Path, paths: &[PathBuf]) -> Vec<String> {
     paths
         .iter()
@@ -1087,24 +1570,6 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn previous_tag_matches_template_prefix_and_suffix() -> Result<(), String> {
-        let repo = init_repo()?;
-        fs::write(repo.path().join("README.md"), "hello").map_err(|error| error.to_string())?;
-        git::git(repo.path(), &["add", "README.md"])?;
-        git::git(repo.path(), &["commit", "-m", "feat: initial"])?;
-        git::git(repo.path(), &["tag", "pkg-0.1.0-release"])?;
-        git::git(repo.path(), &["tag", "pkg-0.2.0-release"])?;
-        git::git(repo.path(), &["tag", "pkg-9.9.9-other"])?;
-
-        assert_eq!(
-            previous_tag(repo.path(), "pkg-${version}-release")?,
-            Some("pkg-0.2.0-release".to_string())
-        );
-
-        Ok(())
-    }
-
-    #[test]
     fn current_version_prefers_root_package() -> Result<(), String> {
         let temp = TempDir::new().map_err(|error| error.to_string())?;
         let root_package = test_package(temp.path(), None, "root", "1.2.3")?;
@@ -1120,66 +1585,6 @@ mod tests {
             Version::parse("1.2.3").expect("test semver should parse")
         );
 
-        Ok(())
-    }
-
-    #[test]
-    fn write_release_files_returns_only_changed_paths() -> Result<(), String> {
-        let temp = TempDir::new().map_err(|error| error.to_string())?;
-        let root_package = test_package(temp.path(), None, "root", "0.2.0")?;
-        let workspace_package =
-            test_package(temp.path(), Some(Path::new("packages/a")), "a", "0.1.0")?;
-        let changelog = temp.path().join("CHANGELOG.md");
-        fs::write(&changelog, "# Changelog\n").map_err(|error| error.to_string())?;
-
-        let changed = write_release_files(
-            temp.path(),
-            &[root_package.clone(), workspace_package.clone()],
-            &[],
-            &[],
-            Some(&changelog),
-            &Version::parse("0.2.0").expect("test semver should parse"),
-            Some("# 0.2.0 (2026-06-24)\n\nNo classifiable changes.\n"),
-        )?;
-
-        assert_eq!(
-            changed.changed_paths,
-            vec![workspace_package.package_json.clone(), changelog.clone()]
-        );
-        assert_eq!(
-            fs::read_to_string(&root_package.package_json).map_err(|error| error.to_string())?,
-            "{\n  \"name\": \"root\",\n  \"version\": \"0.2.0\"\n}\n"
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn cargo_lock_file_search_prefers_nearest_lock_under_release_root() -> Result<(), String> {
-        let temp = TempDir::new().map_err(|error| error.to_string())?;
-        let root_lock = temp.path().join("Cargo.lock");
-        let nested_lock = temp.path().join("crates/verso/Cargo.lock");
-        let manifest = temp.path().join("crates/verso/Cargo.toml");
-        fs::create_dir_all(manifest.parent().expect("manifest should have a parent"))
-            .map_err(|error| error.to_string())?;
-        fs::write(&root_lock, "version = 4\n").map_err(|error| error.to_string())?;
-        fs::write(&nested_lock, "version = 4\n").map_err(|error| error.to_string())?;
-
-        assert_eq!(
-            cargo_lock_file_for_manifest(temp.path(), &manifest),
-            Some(nested_lock)
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn changelog_insertion_normalizes_heading_whitespace() -> Result<(), String> {
-        let updated = insert_changelog_entry("# Changelog   \nold", "## 0.2.0\n\n* feature");
-        let crlf_updated = insert_changelog_entry("# Changelog   \r\nold", "## 0.2.0\n\n* feature");
-
-        assert_eq!(updated, "# Changelog\n\n## 0.2.0\n\n* feature\n\nold");
-        assert_eq!(crlf_updated, "# Changelog\n\n## 0.2.0\n\n* feature\n\nold");
         Ok(())
     }
 
@@ -1202,16 +1607,6 @@ mod tests {
         assert!(dirty.contains("note:"));
         assert!(dirty.contains("help:"));
         assert!(tag.contains("help:"));
-    }
-
-    fn init_repo() -> Result<TempDir, String> {
-        let repo = TempDir::new().map_err(|error| error.to_string())?;
-        git::git(repo.path(), &["init"])?;
-        git::git(repo.path(), &["config", "user.email", "test@example.com"])?;
-        git::git(repo.path(), &["config", "user.name", "Test User"])?;
-        git::git(repo.path(), &["config", "commit.gpgSign", "false"])?;
-        git::git(repo.path(), &["config", "tag.gpgSign", "false"])?;
-        Ok(repo)
     }
 
     fn test_package(

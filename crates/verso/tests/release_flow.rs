@@ -38,7 +38,10 @@ include_root = true
         .success()
         .stdout(predicate::str::contains("Verso dry run"))
         .stdout(predicate::str::contains("Version updates"))
-        .stdout(predicate::str::contains("git tag -a 'v0.2.0' -m 'v0.2.0'"))
+        .stdout(predicate::str::contains("git mktag"))
+        .stdout(predicate::str::contains(
+            "git update-ref 'refs/tags/v0.2.0'",
+        ))
         .stdout(predicate::str::contains("git push --atomic"));
 
     assert_eq!(
@@ -46,6 +49,270 @@ include_root = true
         root_package
     );
 
+    Ok(())
+}
+
+#[test]
+fn json_dry_run_contains_exact_file_changes_without_writing(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    let package_path = repo.path().join("package.json");
+    let before = fs::read_to_string(&package_path)?;
+    let before_head = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+
+    let output = Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--dry-run", "--json", "--version", "0.2.0", "--yes"])
+        .output()?;
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    let package_change = plan["fileChanges"]
+        .as_array()
+        .and_then(|changes| {
+            changes
+                .iter()
+                .find(|change| change["path"] == "package.json")
+        })
+        .ok_or("package.json change missing from plan")?;
+
+    assert!(output.status.success());
+    assert_eq!(plan["operation"], "release");
+    assert_eq!(package_change["before"], before);
+    assert_eq!(
+        package_change["after"],
+        "{\n  \"name\": \"root\",\n  \"version\": \"0.2.0\"\n}\n"
+    );
+    assert_eq!(fs::read_to_string(package_path)?, before);
+    assert_eq!(
+        git_stdout(repo.path(), &["rev-parse", "HEAD"])?,
+        before_head
+    );
+    assert_eq!(git_stdout(repo.path(), &["status", "--porcelain"])?, "");
+
+    Ok(())
+}
+
+#[test]
+fn duplicate_release_targets_are_rejected_before_writing() -> Result<(), Box<dyn std::error::Error>>
+{
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    write_file(
+        &repo.path().join("verso.toml"),
+        r#"
+[changelog]
+enabled = true
+infile = "package.json"
+"#,
+    )?;
+    git(repo.path(), &["add", "verso.toml"])?;
+    git(
+        repo.path(),
+        &[
+            "commit",
+            "-m",
+            "test: configure conflicting release targets",
+        ],
+    )?;
+    let package_path = repo.path().join("package.json");
+    let before = fs::read_to_string(&package_path)?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--dry-run", "--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("release plan targets"));
+
+    assert_eq!(fs::read_to_string(package_path)?, before);
+    assert!(!repo.path().join(".git/verso/active.json").exists());
+    Ok(())
+}
+
+#[test]
+fn release_preserves_a_normalized_multiline_commit_message(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    write_file(
+        &repo.path().join("verso.toml"),
+        r#"
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+
+[git]
+commit_message = """
+release ${version}
+# retained
+ """
+
+[changelog]
+enabled = true
+"#,
+    )?;
+    git(repo.path(), &["add", "verso.toml"])?;
+    git(
+        repo.path(),
+        &["commit", "-m", "test: configure multiline release message"],
+    )?;
+    let remote = repo.path().join(".git/release-test-remote.git");
+    let remote_string = remote.to_str().ok_or("non-UTF-8 path")?;
+    git(repo.path(), &["init", "--bare", remote_string])?;
+    let branch = git_stdout(repo.path(), &["symbolic-ref", "--short", "HEAD"])?;
+    let branch_ref = format!("HEAD:refs/heads/{}", branch.trim());
+    git(repo.path(), &["push", "origin", &branch_ref])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .success();
+
+    assert_eq!(
+        git_stdout(repo.path(), &["log", "-1", "--format=%B"])?.trim_end(),
+        "release 0.2.0\n# retained"
+    );
+    assert!(!repo.path().join(".git/verso/active.json").exists());
+    Ok(())
+}
+
+#[test]
+fn bump_minor_after_subcommand_only_updates_selected_group(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    init_repo(repo.path())?;
+    write_file(
+        &repo.path().join("packages/core/package.json"),
+        "{\n  \"name\": \"core\",\n  \"version\": \"1.2.3\"\n}\n",
+    )?;
+    write_file(
+        &repo.path().join("packages/ui/package.json"),
+        "{\n  \"name\": \"ui\",\n  \"version\": \"4.5.6\"\n}\n",
+    )?;
+    write_file(
+        &repo.path().join("verso.core.toml"),
+        r#"
+[version]
+root_package = "packages/core/package.json"
+
+[changelog]
+enabled = true
+"#,
+    )?;
+    write_file(&repo.path().join("CHANGELOG.md"), "# Changelog\n")?;
+    git(repo.path(), &["add", "."])?;
+    git(repo.path(), &["commit", "-m", "chore: add release groups"])?;
+    git(repo.path(), &["tag", "v1.2.3"])?;
+    let before_head = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["bump", "minor", "--group", "core", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Updated release files to 1.3.0."));
+
+    assert!(
+        fs::read_to_string(repo.path().join("packages/core/package.json"))?
+            .contains("\"version\": \"1.3.0\"")
+    );
+    assert!(
+        fs::read_to_string(repo.path().join("packages/ui/package.json"))?
+            .contains("\"version\": \"4.5.6\"")
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join("CHANGELOG.md"))?,
+        "# Changelog\n"
+    );
+    assert_eq!(
+        git_stdout(repo.path(), &["rev-parse", "HEAD"])?,
+        before_head
+    );
+    assert_eq!(git_stdout(repo.path(), &["tag", "--list"])?, "v1.2.3\n");
+    assert_eq!(
+        git_stdout(repo.path(), &["status", "--porcelain"])?,
+        " M packages/core/package.json\n"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn named_release_groups_get_distinct_default_tags() -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    let remote = TempDir::new()?;
+    init_repo(repo.path())?;
+    git(remote.path(), &["init", "--bare"])?;
+    for group in ["core", "ui", "default"] {
+        write_file(
+            &repo.path().join(format!("packages/{group}/package.json")),
+            &format!("{{\n  \"name\": \"{group}\",\n  \"version\": \"1.0.0\"\n}}\n"),
+        )?;
+        write_file(
+            &repo.path().join(format!("verso.{group}.toml")),
+            &format!("[version]\nroot_package = \"packages/{group}/package.json\"\n"),
+        )?;
+    }
+    git(repo.path(), &["add", "."])?;
+    git(repo.path(), &["commit", "-m", "chore: add release groups"])?;
+    let remote_path = remote.path().to_str().ok_or("non-UTF-8 path")?;
+    git(repo.path(), &["remote", "add", "origin", remote_path])?;
+    git(repo.path(), &["push", "-u", "origin", "HEAD"])?;
+
+    for group in ["core", "ui", "default"] {
+        Command::cargo_bin("verso")?
+            .current_dir(repo.path())
+            .args(["--group", group, "--version", "1.1.0", "--yes"])
+            .assert()
+            .success();
+    }
+
+    assert_eq!(
+        git_stdout(repo.path(), &["tag", "--list", "*-v1.1.0"])?
+            .lines()
+            .collect::<Vec<_>>(),
+        ["core-v1.1.0", "default-v1.1.0", "ui-v1.1.0"]
+    );
+    Ok(())
+}
+
+#[test]
+fn recovery_rejects_a_different_release_group() -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    write_file(
+        &repo.path().join("verso.ui.toml"),
+        r#"
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+"#,
+    )?;
+    git(repo.path(), &["add", "verso.ui.toml"])?;
+    git(repo.path(), &["commit", "-m", "test: add ui release group"])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0"])
+        .write_stdin("y\nn\n")
+        .assert()
+        .failure();
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--group", "ui", "abort"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "active transaction belongs to group default",
+        ));
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("abort")
+        .assert()
+        .success();
     Ok(())
 }
 
@@ -123,7 +390,7 @@ fn dry_run_infers_pnpm_workspace_and_lists_manifest_paths() -> Result<(), Box<dy
         .stdout(predicate::str::contains("Package count: 2"))
         .stdout(predicate::str::contains("packages/a/package.yaml"))
         .stdout(predicate::str::contains(
-            "git add 'package.json' 'packages/a/package.yaml'",
+            "git add -- 'package.json' 'packages/a/package.yaml'",
         ));
 
     Ok(())
@@ -372,6 +639,66 @@ enabled = false
 }
 
 #[test]
+fn keep_a_changelog_release_inserts_unreleased_and_change_categories(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    write_file(
+        &repo.path().join("verso.toml"),
+        r#"
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+
+[changelog]
+enabled = true
+preset = "keep-a-changelog"
+"#,
+    )?;
+    git(repo.path(), &["add", "verso.toml"])?;
+    git(
+        repo.path(),
+        &["commit", "-m", "chore: use Keep a Changelog"],
+    )?;
+    write_file(&repo.path().join("fix.md"), "fix\n")?;
+    git(repo.path(), &["add", "fix.md"])?;
+    git(
+        repo.path(),
+        &["commit", "-m", "fix: restore interrupted release"],
+    )?;
+    write_file(&repo.path().join("performance.md"), "faster\n")?;
+    git(repo.path(), &["add", "performance.md"])?;
+    git(
+        repo.path(),
+        &["commit", "-m", "perf: reduce planning overhead"],
+    )?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Local release commit and tag were created",
+        ));
+
+    let changelog = fs::read_to_string(repo.path().join("CHANGELOG.md"))?;
+    let unreleased = changelog
+        .find("## [Unreleased]")
+        .ok_or("Unreleased heading missing")?;
+    let release = changelog
+        .find("## [0.2.0] - ")
+        .ok_or("release heading missing")?;
+    assert!(unreleased < release);
+    assert!(changelog.contains("### Added\n\n- add feature"));
+    assert!(changelog.contains("### Fixed\n\n- restore interrupted release"));
+    assert!(changelog.contains("### Changed"));
+    assert!(changelog.contains("reduce planning overhead"));
+
+    Ok(())
+}
+
+#[test]
 fn release_runs_hooks_in_order_before_push_failure() -> Result<(), Box<dyn std::error::Error>> {
     let repo = TempDir::new()?;
     write_release_fixture(repo.path())?;
@@ -422,6 +749,193 @@ before_push = "git config --file hook.log --add hooks.step before_push"
 }
 
 #[test]
+fn a_tagged_hook_cannot_publish_and_then_trigger_local_rollback(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    let remote = repo.path().join(".git/release-test-remote.git");
+    let remote_string = remote.to_str().ok_or("non-UTF-8 path")?;
+    git(repo.path(), &["init", "--bare", remote_string])?;
+    let branch = git_stdout(repo.path(), &["symbolic-ref", "--short", "HEAD"])?;
+    let branch_ref = format!("HEAD:refs/heads/{}", branch.trim());
+    git(repo.path(), &["push", "origin", &branch_ref])?;
+    let hook = format!(
+        "git push --atomic origin HEAD:refs/heads/{} refs/tags/v0.2.0:refs/tags/v0.2.0 && exit 1",
+        branch.trim()
+    );
+    write_file(
+        &repo.path().join("verso.toml"),
+        &format!(
+            r#"
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+
+[changelog]
+enabled = true
+
+[hooks]
+after_tag = {hook:?}
+"#
+        ),
+    )?;
+    git(repo.path(), &["add", "verso.toml"])?;
+    git(
+        repo.path(),
+        &["commit", "-m", "test: publish inside tagged hook"],
+    )?;
+    git(repo.path(), &["push"])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "cannot abort because the exact release refs are already present",
+        ));
+
+    assert_eq!(
+        git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?.trim(),
+        "v0.2.0"
+    );
+    let status_output = Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["status", "--json"])
+        .output()?;
+    let status: serde_json::Value = serde_json::from_slice(&status_output.stdout)?;
+    assert_eq!(status["stage"], "pushed");
+    assert_eq!(status["canAbort"], false);
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["resume", "--skip-hook"])
+        .assert()
+        .success();
+    Ok(())
+}
+
+#[test]
+fn a_committed_hook_cannot_publish_and_then_trigger_local_rollback(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    let remote = repo.path().join(".git/release-test-remote.git");
+    let remote_string = remote.to_str().ok_or("non-UTF-8 path")?;
+    git(repo.path(), &["init", "--bare", remote_string])?;
+    let branch = git_stdout(repo.path(), &["symbolic-ref", "--short", "HEAD"])?;
+    let branch_ref = format!("HEAD:refs/heads/{}", branch.trim());
+    git(repo.path(), &["push", "origin", &branch_ref])?;
+    let hook = format!(
+        "git tag -a v0.2.0 -m v0.2.0 && git push --atomic origin HEAD:refs/heads/{} refs/tags/v0.2.0:refs/tags/v0.2.0 && exit 1",
+        branch.trim()
+    );
+    write_file(
+        &repo.path().join("verso.toml"),
+        &format!(
+            r#"
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+
+[changelog]
+enabled = true
+
+[hooks]
+after_commit = {hook:?}
+"#
+        ),
+    )?;
+    git(repo.path(), &["add", "verso.toml"])?;
+    git(
+        repo.path(),
+        &["commit", "-m", "test: publish inside committed hook"],
+    )?;
+    git(repo.path(), &["push"])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "planned release tag already exists on the remote",
+        ));
+
+    assert!(repo.path().join(".git/verso/active.json").exists());
+    assert!(fs::read_to_string(repo.path().join("package.json"))?.contains("0.2.0"));
+    assert_eq!(
+        git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?.trim(),
+        "v0.2.0"
+    );
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("abort")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "planned release tag already exists on the remote",
+        ));
+    Ok(())
+}
+
+#[test]
+fn a_before_commit_hook_cannot_publish_and_then_trigger_local_rollback(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    let remote = repo.path().join(".git/release-test-remote.git");
+    let remote_string = remote.to_str().ok_or("non-UTF-8 path")?;
+    git(repo.path(), &["init", "--bare", remote_string])?;
+    let branch = git_stdout(repo.path(), &["symbolic-ref", "--short", "HEAD"])?;
+    let branch_ref = format!("HEAD:refs/heads/{}", branch.trim());
+    git(repo.path(), &["push", "origin", &branch_ref])?;
+    let hook = format!(
+        "git add -- package.json packages/a/package.json CHANGELOG.md && git commit --cleanup=verbatim -m 'chore(release): release v0.2.0' && git tag -a v0.2.0 -m v0.2.0 && git push --atomic origin HEAD:refs/heads/{} refs/tags/v0.2.0:refs/tags/v0.2.0 && exit 1",
+        branch.trim()
+    );
+    write_file(
+        &repo.path().join("verso.toml"),
+        &format!(
+            r#"
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+
+[changelog]
+enabled = true
+
+[hooks]
+before_commit = {hook:?}
+"#
+        ),
+    )?;
+    git(repo.path(), &["add", "verso.toml"])?;
+    git(
+        repo.path(),
+        &["commit", "-m", "test: publish inside before-commit hook"],
+    )?;
+    git(repo.path(), &["push"])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "planned release tag already exists on the remote",
+        ));
+
+    assert!(repo.path().join(".git/verso/active.json").exists());
+    assert!(fs::read_to_string(repo.path().join("package.json"))?.contains("0.2.0"));
+    assert_eq!(
+        git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?.trim(),
+        "v0.2.0"
+    );
+    Ok(())
+}
+
+#[test]
 fn after_version_hook_failure_rolls_back_release_files() -> Result<(), Box<dyn std::error::Error>> {
     let repo = TempDir::new()?;
     write_release_fixture(repo.path())?;
@@ -438,6 +952,10 @@ after_version = "git config --file hook.log --get missing.key"
     )?;
     git(repo.path(), &["add", "verso.toml"])?;
     git(repo.path(), &["commit", "-m", "test: add failing hook"])?;
+    let remote = repo.path().join(".git/release-test-remote.git");
+    let remote_string = remote.to_str().ok_or("non-UTF-8 path")?;
+    git(repo.path(), &["init", "--bare", remote_string])?;
+    git(repo.path(), &["push", "origin", "HEAD"])?;
 
     Command::cargo_bin("verso")?
         .current_dir(repo.path())
@@ -455,6 +973,39 @@ after_version = "git config --file hook.log --get missing.key"
         String::new()
     );
 
+    Ok(())
+}
+
+#[test]
+fn a_failed_release_hook_preserves_the_transaction_when_remote_is_unreachable(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    write_file(
+        &repo.path().join("verso.toml"),
+        r#"
+[workspaces]
+patterns = ["packages/*"]
+include_root = true
+
+[hooks]
+after_version = "exit 1"
+"#,
+    )?;
+    git(repo.path(), &["add", "verso.toml"])?;
+    git(repo.path(), &["commit", "-m", "test: add failing hook"])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "cannot inspect the remote release refs",
+        ));
+
+    assert!(repo.path().join(".git/verso/active.json").exists());
+    assert!(fs::read_to_string(repo.path().join("package.json"))?.contains("0.2.0"));
     Ok(())
 }
 
@@ -584,6 +1135,217 @@ fn abort_before_commit_keeps_release_files() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
+fn files_applied_status_and_abort_restore_transaction() -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    let before_head = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0"])
+        .write_stdin("y\nn\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("release aborted"));
+
+    let status_output = Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["status", "--json"])
+        .output()?;
+    let status: serde_json::Value = serde_json::from_slice(&status_output.stdout)?;
+    assert!(status_output.status.success());
+    assert_eq!(status["active"], true);
+    assert_eq!(status["operation"], "release");
+    assert_eq!(status["stage"], "files-applied");
+    assert_eq!(status["targetVersion"], "0.2.0");
+    assert_eq!(status["canAbort"], true);
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["abort", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "--dry-run can only be used with release or bump",
+        ));
+    assert!(repo.path().join(".git/verso/active.json").exists());
+    assert!(
+        fs::read_to_string(repo.path().join("package.json"))?.contains("\"version\": \"0.2.0\"")
+    );
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("abort")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("restored release files"));
+
+    assert!(
+        fs::read_to_string(repo.path().join("package.json"))?.contains("\"version\": \"0.1.0\"")
+    );
+    assert!(
+        fs::read_to_string(repo.path().join("packages/a/package.json"))?
+            .contains("\"version\": \"0.1.0\"")
+    );
+    assert!(!fs::read_to_string(repo.path().join("CHANGELOG.md"))?.contains("0.2.0"));
+    assert_eq!(
+        git_stdout(repo.path(), &["rev-parse", "HEAD"])?,
+        before_head
+    );
+    assert_eq!(git_stdout(repo.path(), &["status", "--porcelain"])?, "");
+    assert!(!repo.path().join(".git/verso/active.json").exists());
+
+    let cleared_output = Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["status", "--json"])
+        .output()?;
+    let cleared: serde_json::Value = serde_json::from_slice(&cleared_output.stdout)?;
+    assert_eq!(cleared["active"], false);
+
+    Ok(())
+}
+
+#[test]
+fn push_failure_requires_resume_and_rejects_partial_remote_state(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    let before_release = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0"])
+        .write_stdin("y\nn\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("release aborted"));
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("resume")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Local release commit and tag were created",
+        ));
+
+    let status_output = Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["status", "--json"])
+        .output()?;
+    let status: serde_json::Value = serde_json::from_slice(&status_output.stdout)?;
+    assert_eq!(status["active"], true);
+    assert_eq!(status["stage"], "tagged");
+    assert_eq!(status["pushStarted"], true);
+    assert_eq!(status["pushFailed"], true);
+    assert_eq!(status["canAbort"], false);
+    assert_eq!(
+        git_stdout(repo.path(), &["log", "-1", "--pretty=%s"])?.trim(),
+        "chore(release): release v0.2.0"
+    );
+    assert_eq!(
+        git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?.trim(),
+        "v0.2.0"
+    );
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("abort")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "cannot automatically abort after a push was started",
+        ));
+
+    let remote = repo.path().join(".git/release-test-remote.git");
+    let remote_string = remote.to_str().ok_or("non-UTF-8 path")?;
+    git(repo.path(), &["init", "--bare", remote_string])?;
+    let branch = git_stdout(repo.path(), &["symbolic-ref", "--short", "HEAD"])?;
+    let branch_ref = format!("HEAD:refs/heads/{}", branch.trim());
+    git(repo.path(), &["push", "origin", &branch_ref])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("resume")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "remote release refs are partial or moved",
+        ));
+
+    let before_ref = format!("{}:refs/heads/{}", before_release.trim(), branch.trim());
+    git(repo.path(), &["push", "--force", "origin", &before_ref])?;
+    git(
+        repo.path(),
+        &["push", "origin", "refs/tags/v0.2.0:refs/tags/v0.2.0"],
+    )?;
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("resume")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("does not contain release commit"));
+    git(repo.path(), &["push", "origin", ":refs/tags/v0.2.0"])?;
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("resume")
+        .assert()
+        .success();
+
+    let status_output = Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["status", "--json"])
+        .output()?;
+    let status: serde_json::Value = serde_json::from_slice(&status_output.stdout)?;
+    assert_eq!(status["active"], false);
+
+    Ok(())
+}
+
+#[test]
+fn resume_uses_the_pinned_release_after_local_head_advances(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Local release commit and tag were created",
+        ));
+    let release_head = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+    git(
+        repo.path(),
+        &["commit", "--allow-empty", "-m", "chore: later local work"],
+    )?;
+    let later_head = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+    let remote = repo.path().join(".git/release-test-remote.git");
+    let remote_string = remote.to_str().ok_or("non-UTF-8 path")?;
+    git(repo.path(), &["init", "--bare", remote_string])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("resume")
+        .assert()
+        .success();
+
+    let branch = git_stdout(repo.path(), &["symbolic-ref", "--short", "HEAD"])?;
+    let branch_ref = format!("refs/heads/{}", branch.trim());
+    assert_eq!(
+        git_stdout(repo.path(), &["ls-remote", "origin", &branch_ref])?
+            .split_whitespace()
+            .next(),
+        Some(release_head.trim())
+    );
+    assert_eq!(git_stdout(repo.path(), &["rev-parse", "HEAD"])?, later_head);
+    assert!(!repo.path().join(".git/verso/active.json").exists());
+    Ok(())
+}
+
+#[test]
 fn abort_before_tag_keeps_release_commit_and_files() -> Result<(), Box<dyn std::error::Error>> {
     let repo = TempDir::new()?;
     write_release_fixture(repo.path())?;
@@ -647,6 +1409,61 @@ fn abort_before_push_keeps_local_release_commit_and_tag() -> Result<(), Box<dyn 
         String::new()
     );
 
+    Ok(())
+}
+
+#[test]
+fn abort_refuses_when_the_remote_branch_already_contains_the_release(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    let remote = repo.path().join(".git/release-test-remote.git");
+    let remote_string = remote.to_str().ok_or("non-UTF-8 path")?;
+    git(repo.path(), &["init", "--bare", remote_string])?;
+    let branch = git_stdout(repo.path(), &["symbolic-ref", "--short", "HEAD"])?;
+    let branch_ref = format!("HEAD:refs/heads/{}", branch.trim());
+    git(repo.path(), &["push", "origin", &branch_ref])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0"])
+        .write_stdin("y\ny\ny\nn\n")
+        .assert()
+        .failure();
+
+    let release_head = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+    let release_head = release_head.trim();
+    let tree = format!("{release_head}^{{tree}}");
+    let descendant = git_stdout(
+        repo.path(),
+        &[
+            "commit-tree",
+            &tree,
+            "-p",
+            release_head,
+            "-m",
+            "test: later remote commit",
+        ],
+    )?;
+    let descendant_ref = format!("{}:refs/heads/{}", descendant.trim(), branch.trim());
+    git(repo.path(), &["push", "origin", &descendant_ref])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("abort")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("already contains release commit"));
+
+    assert!(repo.path().join(".git/verso/active.json").exists());
+    assert_eq!(
+        git_stdout(repo.path(), &["rev-parse", "HEAD"])?.trim(),
+        release_head
+    );
+    assert_eq!(
+        git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?.trim(),
+        "v0.2.0"
+    );
     Ok(())
 }
 
@@ -850,6 +1667,12 @@ fn commit_failure_unstages_and_rolls_back_release_files() -> Result<(), Box<dyn 
 {
     let repo = TempDir::new()?;
     write_release_fixture(repo.path())?;
+    let remote = repo.path().join(".git/release-test-remote.git");
+    let remote_string = remote.to_str().ok_or("non-UTF-8 path")?;
+    git(repo.path(), &["init", "--bare", remote_string])?;
+    let branch = git_stdout(repo.path(), &["symbolic-ref", "--short", "HEAD"])?;
+    let branch_ref = format!("HEAD:refs/heads/{}", branch.trim());
+    git(repo.path(), &["push", "origin", &branch_ref])?;
     git(repo.path(), &["config", "--unset", "user.email"])?;
     git(repo.path(), &["config", "--unset", "user.name"])?;
     let isolated_home = TempDir::new()?;
@@ -889,6 +1712,40 @@ fn commit_failure_unstages_and_rolls_back_release_files() -> Result<(), Box<dyn 
     Ok(())
 }
 
+#[cfg(unix)]
+#[test]
+fn native_commit_hook_cannot_change_the_exact_release_commit(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    let hook = repo.path().join(".git/hooks/pre-commit");
+    write_file(
+        &hook,
+        "#!/bin/sh\nperl -0pi -e 's/\"version\": \"0.2.0\"/\"version\": \"9.9.9\"/' package.json\ngit add package.json\n",
+    )?;
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755))?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "created commit does not match the exact release plan",
+        ));
+
+    assert!(repo.path().join(".git/verso/active.json").exists());
+    assert_eq!(
+        git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?.trim(),
+        ""
+    );
+    assert!(fs::read_to_string(repo.path().join("package.json"))?.contains("9.9.9"));
+
+    Ok(())
+}
+
 #[test]
 fn add_failure_unstages_and_rolls_back_release_files() -> Result<(), Box<dyn std::error::Error>> {
     let repo = TempDir::new()?;
@@ -911,6 +1768,7 @@ infile = "ignored/CHANGELOG.md"
         repo.path(),
         &["commit", "-m", "test: ignored changelog path"],
     )?;
+    fs::create_dir(repo.path().join("ignored"))?;
 
     Command::cargo_bin("verso")?
         .current_dir(repo.path())

@@ -1,50 +1,76 @@
 ---
-description: Verso CLI 的命令语法、版本选择、结构化输出和退出行为。
+description: Verso CLI 的命令语法、发布组、准确计划、恢复方式和退出行为。
 ---
 
 # CLI 参考
 
-## `verso [OPTIONS]`
+## `verso [OPTIONS] [COMMAND]`
 
-不带子命令时，会规划或执行一次发布。
+不带子命令时，会规划或执行一次完整发布。全局参数可以放在子命令之前或之后。
 
-| 参数                   | 默认值       | 含义                                                       |
-| ---------------------- | ------------ | ---------------------------------------------------------- |
-| `--dry-run`            | `false`      | 输出计划，不写文件、不运行 hook，也不执行会修改 Git 的命令 |
-| `--json`               | `false`      | 以 JSON 输出 dry-run；没有 `--dry-run` 时会被拒绝          |
-| `--version <SEMVER>`   | 交互选择     | 使用一个准确且有效的 SemVer 目标版本                       |
-| `--config <PATH>`      | `verso.toml` | 使用其他配置；其父目录成为发布根目录                       |
-| `--yes`                | `false`      | 接受发布确认；不会选择版本                                 |
-| `-V`、`--tool-version` | -            | 输出已安装 wrapper / 原生 CLI 版本并退出                   |
-| `--help`               | -            | 输出命令帮助                                               |
+| 参数                   | 默认值       | 含义                                                           |
+| ---------------------- | ------------ | -------------------------------------------------------------- |
+| `--dry-run`            | `false`      | 输出准确计划，不写文件、不运行 hook，也不执行会修改 Git 的命令 |
+| `--json`               | `false`      | 以 JSON 输出 dry-run、doctor 报告或事务状态                    |
+| `--version <SEMVER>`   | 交互选择     | 为完整发布或 `bump` 使用准确且有效的 SemVer 目标               |
+| `--config <PATH>`      | `verso.toml` | 使用其他组配置；其父目录成为发布根目录                         |
+| `--group <NAME>`       | -            | 选择 `verso.NAME.toml`；与 `--config` 互斥                     |
+| `--yes`                | `false`      | 接受发布或 bump 确认；不会选择版本                             |
+| `-V`、`--tool-version` | -            | 输出已安装 wrapper / 原生 CLI 版本并退出                       |
+| `--help`               | -            | 输出命令帮助                                                   |
 
 ```sh
-verso --dry-run
-verso --dry-run --version 2.0.0-rc.0 --json
-verso --config config/verso.toml doctor --json
-verso --version 2.0.0 --yes
+verso --dry-run --version 2.0.0-rc.0
+verso --group core --version 2.0.0 --yes
+verso doctor --group core --json
 verso --tool-version
 ```
 
-### 交互式版本选择
+完整发布或 bump 使用 `--json` 时必须同时使用 `--dry-run`；`doctor --json` 和 `status --json` 不需要
+`--dry-run`。
 
-没有 `--version` 时，Verso 会提供 patch、minor、major、alpha、beta、rc 和自定义 SemVer。当前版本
-是 prerelease 时，还会提供对应的 stable 版本。
+### 交互式发布版本选择
+
+完整发布没有 `--version` 时，Verso 会提供 patch、minor、major、alpha、beta、rc 和自定义 SemVer。
+当前版本是 prerelease 时，还会提供对应的 stable 版本。
 
 选择 alpha、beta 或 rc 后，需要继续选择 patch、minor、major 或自定义 base。同一个 base 上重复选择同一
 channel 会递增数字后缀；切换 channel 或 base 会从 `.0` 开始。例如从 `1.3.0-beta.0` 选择 beta + minor，
 结果是 `1.3.0-beta.1`。
 
-准确目标版本可以等于或低于当前版本，但会额外显示一个默认否的确认；`--yes` 会跳过这个确认。
+准确目标版本可以等于或低于当前版本，但会额外显示一个默认否的确认；`--yes` 会跳过这个确认。stdin 或
+stdout 不是终端时，会使用同一套纯文本提示。
 
-stdin 或 stdout 不是终端时，会使用同一套纯文本提示。输入既可以是编号，也可以是关键字，例如先输入
-`beta`，再输入 `minor`。
+### 准确的 dry-run 计划
 
-### Dry-run JSON
+Dry-run 会在内存中执行真实的计划转换。文本输出包含操作、发布组、修改文件树，以及每个计划修改实际的
+完整文件 before/after diff。它不会执行 hook、写文件或运行会修改 Git 的命令。
 
-JSON 对象包含 `currentVersion`、`targetVersion`、`packageFiles`、`extraVersionFiles`、
-`versionFiles`、`changelogFile`、`commitMessage`、`tagName`、`hooks`、`warnings` 和
-`gitCommands`。路径相对于发布根目录；Git 命令数组只是预览，upstream 使用占位符，不会访问远端。
+JSON 会增加 `fileChanges` 数组，每项包含 `path`、`kind`、`before`、`after` 和 `diff`。完整对象包含
+`operation`、`group`、`currentVersion`、`targetVersion`、`packageFiles`、`extraVersionFiles`、
+`versionFiles`、`changelogFile`、`fileChanges`、`commitMessage`、`tagName`、`hooks`、`warnings`
+和 `gitCommands`。路径相对于发布根目录；发布的 Git 命令使用 tag object、commit OID 和 upstream
+占位符，不会访问远端。Bump 计划不包含 changelog 或 Git 命令。
+
+## `verso bump`
+
+```sh
+verso bump patch
+verso bump minor --dry-run
+verso bump major --group core
+verso bump --version 2.0.0
+```
+
+必须且只能提供一个 bump level（`patch`、`minor` 或 `major`）或 `--version <SEMVER>`。该命令会更新
+已发现的 package manifest、配置的 Cargo manifest，以及最近 Cargo lockfile 中匹配的记录。它不会更新
+changelog、创建 commit 或 tag，也不会 push。只有 `before_version` 和 `after_version` hook 会运行。
+
+## 发布组
+
+一个配置对应一个发布组，组内每个成员的起始版本必须相同。`--group core` 是
+`--config verso.core.toml` 的简写，两者互斥。独立版本组使用独立配置，并且每条命令只运行一个组。
+
+组名必须以 ASCII 字母或数字开头，后续可以使用 ASCII 字母、数字、`-` 和 `_`。
 
 ## `verso init`
 
@@ -63,7 +89,7 @@ verso [--config <PATH>] init [--single | --workspace] [--force]
 ## `verso doctor`
 
 ```sh
-verso [--config <PATH>] doctor [--json]
+verso [--config <PATH> | --group <NAME>] doctor [--json]
 ```
 
 报告会检查发布根目录解析、配置、已发现 package、当前及统一版本、配置的 Cargo 版本、changelog 可写性和
@@ -80,19 +106,30 @@ Git upstream。文本输出使用 `PASS` / `FAIL`；JSON 结构如下：
 
 即使 JSON 成功写出，只要 doctor 报告失败，进程仍以状态 1 退出。
 
-## Package manager 参数转发
-
-使用 `pnpm exec` 不需要参数分隔符：
+## 事务恢复
 
 ```sh
-pnpm exec verso --dry-run
+verso [--config <PATH> | --group <NAME>] status [--json]
+verso [--config <PATH> | --group <NAME>] resume [--retry-hook | --skip-hook]
+verso [--config <PATH> | --group <NAME>] abort
 ```
 
-如果 `package.json` 定义了 `"release": "verso"`，用 `--` 转发参数：
+`status` 会显示当前操作、发布组、阶段、版本对、中断的 hook 和修改文件数。使用 `--json` 时还会输出
+`canAbort`、`pushStarted` 和 `pushFailed`；没有事务时返回 `{ "active": false }`。
 
-```sh
-pnpm release -- --dry-run
-pnpm release -- doctor --json
-```
+`resume` 会用持久化计划校验文件、`HEAD` 与 release tag，跳过已完成的 hook 和确认，再从记录阶段继续。
+如果 hook 执行时中断，应检查其副作用，并明确使用 `--retry-hook` 再次运行，或用 `--skip-hook` 标记为完成。
 
-Verso 成功时以 0 退出；校验、取消、hook、Git 或启动错误以 1 退出。npm wrapper 会转发原生进程的退出码和信号。
+`abort` 只删除预期的 tag 和 release commit，取消 Verso 路径的暂存，恢复计划前的准确文件内容，并拒绝
+覆盖后来编辑或意外的 `HEAD`。事务进入 `pushed` 阶段后不能 abort；应使用 `resume` 完成 `after_push`
+并清除事务。push 一旦开始，远端结果可能未知，因此不能 abort。准确的 tag object 与 peeled tag 匹配且
+固定的远端 branch 等于或包含 release commit 时，`resume` 会完成事务；tag 缺失且 branch 不是 release
+commit 时会重试；ref 不完整或不匹配时会停止并要求手工恢复。事务开始时记录的 push URL 在 resume 后
+仍是发布目标。
+
+release commit 创建后，abort 会先检查这个固定目标，再回退本地状态。发现不属于事务的目标 tag，或远端
+branch 已包含 release commit 时，必须手工处理。push 开始后，本地 `HEAD` 可以继续前进；resume 校验或
+推送的仍是固定的 commit 与 tag。
+
+Verso 成功时以 0 退出；校验、取消、hook、Git、事务或启动错误以 1 退出。npm wrapper 会转发原生进程的
+退出码和信号。

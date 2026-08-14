@@ -19,22 +19,21 @@ npm wrapper 要求 Node.js 22.18 或更高版本，并会为当前平台安装�
 
 ## 安装 wrapper
 
-在 workspace 根目录添加 Verso，并通过 script 暴露命令：
+使用你偏好的 package manager 在 workspace 根目录添加 Verso：
 
 ```sh
-pnpm add -D @amamo/verso
+# npm
+npm install --save-dev @amamo/verso
+# pnpm
+pnpm add --save-dev @amamo/verso
+# Yarn
+yarn add --dev @amamo/verso
+# Bun
+bun add --dev @amamo/verso
 ```
 
-```json
-{
-  "scripts": {
-    "release": "verso"
-  }
-}
-```
-
-直接调用可使用 `pnpm exec verso ...`，通过 script 则使用 `pnpm release -- ...`。npm package 会解析
-当前平台的 package，在 macOS 和 Linux 上按需修复 executable bit，再转发 CLI 的退出状态和信号。
+下面的示例直接使用 `verso` executable，不假设 `package.json` script 的名称。npm package 会解析当前
+平台的 package，在 macOS 和 Linux 上按需修复 executable bit，再转发 CLI 的退出状态和信号。
 
 ## 判断是否需要配置文件
 
@@ -44,14 +43,14 @@ pnpm add -D @amamo/verso
 Workspace 项目可以生成 `verso.toml`：
 
 ```sh
-pnpm exec verso init
+verso init
 ```
 
 初始化器只会通过 `packages/*/package.json` 判断 workspace 模式；其他目录结构应显式指定：
 
 ```sh
-pnpm exec verso init --workspace
-pnpm exec verso init --single
+verso init --workspace
+verso init --single
 ```
 
 `init` 默认拒绝覆盖已有文件。只有确实要替换配置时才使用 `--force`。
@@ -59,14 +58,14 @@ pnpm exec verso init --single
 ## 检查发布条件
 
 ```sh
-pnpm exec verso doctor
+verso doctor
 ```
 
 `doctor` 会检查配置加载、package 发现、当前版本、共享的 package 和 Cargo 版本、changelog 父目录，
 以及具名分支的 upstream。任一检查失败都会返回非零退出状态。自动化可以读取同一组检查的 JSON：
 
 ```sh
-pnpm exec verso doctor --json
+verso doctor --json
 ```
 
 ## 预览一个准确版本
@@ -74,14 +73,14 @@ pnpm exec verso doctor --json
 先指定目标版本，让预览可以复现：
 
 ```sh
-pnpm exec verso --dry-run --version 1.4.0
+verso --dry-run --version 1.4.0
 ```
 
 计划会列出版本文件、可选的 changelog、已配置的 hook、警告、commit 与 tag 模板，以及 Git 命令的准确形态。
 它不会写文件、运行 hook、创建 commit 或 tag，也不会推送。只有 dry-run 模式支持 JSON：
 
 ```sh
-pnpm exec verso --dry-run --version 1.4.0 --json
+verso --dry-run --version 1.4.0 --json
 ```
 
 <Callout variant="warning" title="预览会显示 hook 命令">
@@ -93,13 +92,13 @@ pnpm exec verso --dry-run --version 1.4.0 --json
 交互模式会提供 stable 和 prerelease 选项，并在写文件、提交、打 tag 和推送前分别确认：
 
 ```sh
-pnpm release
+verso
 ```
 
 自动化应给出准确的 SemVer，并明确跳过全部确认：
 
 ```sh
-pnpm release -- --version 1.4.0 --yes
+verso --version 1.4.0 --yes
 ```
 
 `--yes` 只跳过确认，永远不会选择版本。含有 hook 或宽松工作区策略的仓库，在自动化前应先阅读

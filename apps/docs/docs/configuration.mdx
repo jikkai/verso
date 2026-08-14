@@ -4,9 +4,10 @@ description: Configure release roots, workspace discovery, version files, change
 
 # Configure the release boundary
 
-Verso reads `verso.toml` from the current directory unless `--config <PATH>` is supplied. The
-directory containing that file becomes the release root: package patterns, manifests, changelog,
-hooks, and Git commands all resolve from there.
+Verso reads `verso.toml` from the current directory unless `--config <PATH>` or `--group <NAME>` is
+supplied. `--group core` selects `verso.core.toml`. The directory containing the selected file becomes
+the release root: package patterns, manifests, changelog, hooks, and Git commands all resolve from
+there.
 
 Unknown tables and keys are rejected. Config paths must be relative, use forward slashes, and cannot
 contain `..` or escape the release root.
@@ -54,6 +55,25 @@ Every table and key is optional. When the default config path is absent and a ro
 exists, Verso uses these values without creating a file. An explicitly supplied missing config is
 always an error.
 
+## Release groups
+
+One config defines one release group. Every package and configured Cargo manifest discovered by that
+config receives the same target version. `version.require_consistent_versions` must remain `true`;
+setting it to `false` is rejected because it would make the group's current version ambiguous.
+
+Use separate configs for independently versioned groups and run one group at a time:
+
+```text
+verso.core.toml  -> verso --group core bump minor
+verso.ui.toml    -> verso --group ui --version 2.0.0 --yes
+```
+
+For a named group, the default `v${version}` template is automatically scoped with the group name:
+`core-v1.2.3`, `ui-v1.2.3`, and so on. An explicitly different `git.tag_name` is used unchanged.
+
+`--group <NAME>` and `--config <PATH>` are mutually exclusive. Group names start with an ASCII letter
+or digit and may otherwise contain ASCII letters, digits, `-`, and `_`.
+
 ## Workspace discovery
 
 When `workspaces.patterns` is empty, Verso first reads `packages` from `pnpm-workspace.yaml`, then the
@@ -78,7 +98,7 @@ Each matched directory contributes the first existing manifest in this order:
 | Key                           | Default        | Behavior                                                                                        |
 | ----------------------------- | -------------- | ----------------------------------------------------------------------------------------------- |
 | `root_package`                | `package.json` | Provides the current version and joins the update when `include_root` is enabled                |
-| `require_consistent_versions` | `true`         | Rejects discovered packages and configured Cargo packages whose versions differ                 |
+| `require_consistent_versions` | `true`         | Must remain `true`; rejects members whose versions differ so the group has one current version  |
 | `cargo_manifest_paths`        | `[]`           | Updates each manifest's `[package].version` and its nearest ancestor `Cargo.lock`, when present |
 
 When the default `root_package` does not exist, Verso may resolve another supported manifest in the
@@ -86,9 +106,12 @@ release root. A custom `root_package` is used exactly as configured.
 
 ## Changelog
 
-Set `changelog.enabled = true` to prepend a release entry to `changelog.infile`. Only the `angular`
-preset is accepted. Verso finds the highest reachable SemVer tag matching `git.tag_name`, reads
-non-merge commits after it, and classifies Conventional Commit subjects:
+Set `changelog.enabled = true` to add a release entry to `changelog.infile`. `changelog.preset`
+accepts `angular` and `keep-a-changelog`. Changelog generation runs only for a full release;
+`verso bump` leaves the file unchanged.
+
+For either preset, Verso finds the highest reachable SemVer tag matching `git.tag_name`, reads
+non-merge commits after it, and classifies Conventional Commit subjects. The `angular` preset uses:
 
 - `fix` -> Bug Fixes
 - `feat` -> Features
@@ -100,13 +123,17 @@ non-merge commits after it, and classifies Conventional Commit subjects:
 GitHub compare, commit, and issue links are added when the `origin` remote is a recognized GitHub
 SSH or HTTPS URL. An empty classified set produces `No classifiable changes.`
 
+The `keep-a-changelog` preset inserts each release immediately after `## [Unreleased]` and maps
+`feat` to Added, `fix` to Fixed, and performance, breaking, and other conventional changes to Changed.
+It also updates the `[Unreleased]` and release link definitions when a GitHub origin is available.
+
 ## Git policy
 
 | Key                      | Default                               | Behavior                                                                       |
 | ------------------------ | ------------------------------------- | ------------------------------------------------------------------------------ |
 | `require_clean_worktree` | `true`                                | Requires `git status --porcelain` to be empty before writes                    |
 | `commit_message`         | `chore(release): release v${version}` | Replaces every `${version}` placeholder with the target                        |
-| `tag_name`               | `v${version}`                         | Must contain `${version}` and render a valid Git ref name                      |
+| `tag_name`               | `v${version}`                         | Must contain `${version}`; named groups scope this default with the group name |
 | `push`                   | `atomic`                              | Pushes the current upstream branch and exact release tag in one atomic command |
 
 With `require_clean_worktree = false`, unrelated unstaged files are allowed, but the index and every
@@ -117,6 +144,9 @@ to `atomic`; no non-atomic push mode exists.
 
 Hooks run from the release root through `sh -c` on macOS/Linux and `cmd /C` on Windows. Empty strings
 are treated as disabled. A nonzero exit stops the release at that stage.
+
+`verso bump` runs only `before_version` and `after_version`; commit, tag, and push hooks belong to a
+full release.
 
 Hook commands are printed by dry-run, so never place secrets directly in the config. Pass sensitive
 values through the process environment and keep `verso.toml` reviewable. See

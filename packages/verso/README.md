@@ -13,26 +13,26 @@ small JavaScript launcher plus the native package for the current platform.
 | Linux (GNU)      | x64   | `@amamo/verso-linux-x64`    |
 | Windows          | x64   | `@amamo/verso-win32-x64`    |
 
-Node.js 22.18 or newer is required. Install the wrapper, not a platform package directly:
+Node.js 22.18 or newer is required. Install the wrapper, not a platform package directly, with your
+preferred package manager:
 
 ```sh
-pnpm add -D @amamo/verso
+# npm
+npm install --save-dev @amamo/verso
+# pnpm
+pnpm add --save-dev @amamo/verso
+# Yarn
+yarn add --dev @amamo/verso
+# Bun
+bun add --dev @amamo/verso
 ```
 
 ## First release
 
-```json
-{
-  "scripts": {
-    "release": "verso"
-  }
-}
-```
-
 ```sh
-pnpm release -- doctor
-pnpm release -- --dry-run --version 1.4.0
-pnpm release -- --version 1.4.0 --yes
+verso doctor
+verso --dry-run --version 1.4.0
+verso --version 1.4.0 --yes
 ```
 
 A single package can use built-in defaults. A workspace usually needs only:
@@ -66,4 +66,4 @@ reinstall `@amamo/verso`.
 
 `Failed to launch Verso binary` means the package was found but the executable could not start.
 Reinstall, retain the printed cause, and include the OS, CPU, Node.js version, package-manager version,
-and `pnpm exec verso --tool-version` output in a bug report.
+and `verso --tool-version` output in a bug report.

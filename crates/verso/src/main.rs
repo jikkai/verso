@@ -10,13 +10,25 @@ fn main() {
 
     let config_path = cli.config_path_buf();
     let allow_missing_default_config = !cli.config_was_explicit();
-    let command = cli.command.take();
-    let result = match command {
-        Some(Commands::Doctor(args)) => {
-            verso::doctor::run_with_status(&config_path, allow_missing_default_config, args.json)
-        }
-        Some(Commands::Init(args)) => verso::init::run(&config_path, &args).map(|()| true),
-        None => verso::release::run(cli).map(|()| true),
+    let result = match cli.validate_command_options() {
+        Err(error) => Err(error),
+        Ok(()) => match cli.command.take() {
+            Some(Commands::Bump(args)) => verso::release::run_bump(cli, args).map(|()| true),
+            Some(Commands::Doctor(args)) => verso::doctor::run_with_status(
+                &config_path,
+                allow_missing_default_config,
+                args.json,
+            ),
+            Some(Commands::Init(args)) => verso::init::run(&config_path, &args).map(|()| true),
+            Some(Commands::Status) => {
+                verso::release::transaction_status(&config_path, cli.json).map(|()| true)
+            }
+            Some(Commands::Resume(args)) => {
+                verso::release::resume(&config_path, &args).map(|()| true)
+            }
+            Some(Commands::Abort) => verso::release::abort(&config_path).map(|()| true),
+            None => verso::release::run(cli).map(|()| true),
+        },
     };
 
     match result {

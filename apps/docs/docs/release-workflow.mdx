@@ -1,96 +1,128 @@
 ---
-description: Follow Verso's validation, confirmation, mutation, rollback, atomic push, and CI handoff boundaries.
+description: Follow Verso's exact plan, persistent transaction, recovery, atomic push, and CI handoff boundaries.
 ---
 
 # Release workflow
 
-Verso is a sequence of explicit local checkpoints followed by one remote transaction. Understanding
-where execution stopped is more useful than treating the whole command as all-or-nothing.
+Verso calculates one exact file plan, then records progress through explicit local stages and one
+remote transaction. The persisted plan makes an interrupted release inspectable and recoverable
+without recomputing its intended output.
 
 ## Before any write
 
-Verso loads and validates the project, resolves a target version, requires a named branch and usable
-upstream, rejects a branch that is behind, checks worktree policy, and rejects an existing target tag.
+Verso loads one release-group config, discovers its members, verifies that their versions are
+consistent, resolves one target version, and calculates every file's actual before and after content.
+A full release also calculates the changelog, commit message, tag, hooks, and atomic push. A bump plan
+contains only version-file changes and version hooks.
 
-The default policy requires an entirely clean worktree. With
-`git.require_clean_worktree = false`, unrelated unstaged edits may remain, but the Git index and every
-package manifest, Cargo manifest, Cargo lockfile, and changelog involved in the release must be clean.
-
-## Ordered stages
-
-```text
-inspect -> choose version -> confirm files
-  -> before_version -> write files -> after_version
-  -> confirm commit -> before_commit -> git add/commit -> after_commit
-  -> confirm tag -> before_tag -> annotated tag -> after_tag
-  -> confirm push -> before_push -> atomic push -> after_push
+```sh
+verso --group core --version 2.0.0 --dry-run
+verso bump minor --group core --dry-run
 ```
 
-The four stage confirmations default to yes. A target that is not greater than the current version
-has an earlier confirmation that defaults to no. `--yes` accepts all of them.
+Dry-run renders that exact plan, including full-file before/after diffs, without writing files,
+running hooks, creating a transaction journal, or executing mutating Git commands.
 
-## Execution failures and cleanup
+For execution, Verso checks the worktree policy and planned paths, rejects an existing target tag,
+and takes a repository transaction lock. Only one Verso transaction may be active per Git repository.
 
-Cleanup is best-effort and scoped to paths Verso changed. It never uses a hard reset.
+## Persisted stages
 
-| Failure point                                                | Resulting local state                                                                                    |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| Config, inspection, version selection, `before_version`      | No release files were written                                                                            |
-| File write, `after_version`, `before_commit`, add, or commit | Restore snapshotted files and unstage Verso paths                                                        |
-| `after_commit`, `before_tag`, or tag creation                | Soft-reset the release commit, restore files, and unstage paths when `HEAD` is still the expected commit |
-| `after_tag` or `before_push`                                 | Delete the new tag, then roll back the release commit and files                                          |
-| Atomic push                                                  | Keep the local release commit and tag; the remote accepted both refs or neither                          |
-| `after_push`                                                 | Keep local and remote release state; the push already succeeded                                          |
+After the first file-change confirmation, Verso stores the plan and progress under Git metadata and
+uses atomic file replacement. The release stages are:
 
-If a hook moves `HEAD` unexpectedly, Verso avoids resetting an unknown commit and reports that the
-cleanup was partial. Any failed restore, unstage, reset, or tag deletion is appended to the original
-error so manual recovery has evidence.
+```text
+planned
+  -> before_version -> apply exact files -> files-applied -> after_version
+  -> before_commit -> git add/commit -> committed -> after_commit
+  -> before_tag -> annotated tag -> tagged -> after_tag
+  -> before_push -> git push --atomic -> pushed -> after_push
+  -> clear transaction
+```
 
-## Cancellation preserves completed work
+`verso bump` follows only `planned -> files-applied`, runs `before_version` and `after_version`, then
+clears the transaction. It does not change the changelog, stage files, create a commit or tag, or
+push.
 
-Answering no at a confirmation exits with status 1 but does not invoke the execution-failure rollback:
+The release confirmations before files, commit, tag, and push default to yes. A target that is not
+greater than the current version has an earlier confirmation that defaults to no. `--yes` accepts all
+of them.
 
-| Cancellation point  | State intentionally retained                    |
-| ------------------- | ----------------------------------------------- |
-| Before file changes | Nothing changed                                 |
-| Before commit       | Updated release files remain unstaged           |
-| Before tag          | Release commit remains; no tag exists           |
-| Before push         | Release commit and annotated tag remain locally |
+## Status, resume, and abort
 
-This makes every checkpoint inspectable. Continue manually only after confirming that `HEAD`, the
-worktree, and the tag match the intended target.
+```sh
+verso status [--json]
+verso resume [--retry-hook | --skip-hook]
+verso abort
+```
+
+`status` is read-only. It reports the operation, release group, stage, version pair, changed-file
+count, interrupted hook, and whether abort is still allowed.
+
+`resume` first reconciles the journal with the exact file contents, `HEAD`, and tag. It skips completed
+hooks and confirmations, then continues from the recorded stage. A hook that was active when the
+process stopped has an unknown outcome: inspect its side effects, then explicitly use `--retry-hook`
+or `--skip-hook`.
+
+`abort` is conservative. It compare-and-deletes only the exact tag object Verso created, soft-resets
+only the expected release commit, unstages only planned paths, and restores a file only when it still
+matches the plan's after content. It refuses an unexpected `HEAD`, moved tag, or later file edit
+rather than overwriting unrelated work. Once the release commit exists, abort also checks the pinned
+remote and refuses an unowned target tag or a branch that already contains the release commit.
+
+Once the transaction reaches `pushed`, abort is forbidden because the remote refs cannot be rolled
+back safely. Run `verso resume` to finish `after_push` and clear the journal. Once push starts, its
+outcome may be unknown, so abort remains disabled even after a reported push failure. Resume accepts
+success when the exact tag object and peeled tag match the persisted release and the pinned remote
+branch equals or contains that commit. It retries the same atomic push when the tag is absent and the
+branch is not the release commit, and stops for manual recovery when the refs are partial or
+mismatched. Resume keeps using the push URL persisted at transaction start.
+It also uses the persisted commit and tag if local `HEAD` advances after push starts.
+
+## Failure and cancellation behavior
+
+Expected file, hook, commit, and tag failures before push trigger a best-effort local abort. Release
+hook failures are checked against the pinned remote first; if that remote cannot be inspected, Verso
+preserves the journal instead of assuming the hook did not publish. A crash, user cancellation at a
+later confirmation, or an ambiguous state preserves the journal so the user can choose `resume` or
+`abort` while push has not started. A push failure preserves the journal for `resume` only.
+
+| Stopping point                       | Persisted state and next action                                                         |
+| ------------------------------------ | --------------------------------------------------------------------------------------- |
+| Before initial file confirmation     | No transaction and no file change                                                       |
+| Files applied / before commit        | Files remain unstaged; `resume` commits or `abort` restores them                        |
+| Commit created / before tag          | Expected release commit remains; `resume` tags or `abort` soft-resets and restores      |
+| Tag created / before push            | Local commit and tag remain; `resume` pushes or `abort` removes the expected local work |
+| Atomic push failed                   | Local commit, tag, and journal remain; fix or inspect the remote, then `resume`         |
+| Push succeeded / `after_push` failed | Local and remote refs remain; only `resume` is allowed                                  |
+
+Cleanup never uses a hard reset. Restore, unstage, reset, tag-delete, journal, or remote-verification
+errors are reported instead of being hidden.
 
 ## Atomic push details
 
 Verso resolves the current branch's configured remote and merge ref, then pushes only these two refs:
 
 ```text
-HEAD:refs/heads/<upstream-branch>
-refs/tags/<release-tag>:refs/tags/<release-tag>
+<release-commit-oid>:refs/heads/<upstream-branch>
+<tag-object-oid>:refs/tags/<release-tag>
 ```
 
 The command uses `git push --atomic`; unrelated local tags are not included. The remote must support
-atomic pushes. If it rejects the transaction, fix the remote problem and retry those exact refs after
-inspecting the retained local commit and tag.
+atomic pushes, so it accepts both refs or neither. Registry publication, GitHub Releases, binary
+builds, and deployment remain the responsibility of tag-triggered CI.
 
 ## Hooks and trust
 
-Hooks are arbitrary project shell commands. A failure before push participates in the cleanup table;
-`after_push` is a notification/follow-up boundary and cannot undo remote refs. Keep destructive or
-credentialed publication outside local hooks when possible.
-
-`--dry-run` executes no hooks. It prints their names and commands in stage order so reviewers can see
-what a real release would invoke.
-
-## CI handoff
-
-After a successful push, tag-triggered CI can build platform artifacts, attest binaries, publish npm
-packages, create or update a GitHub Release, and deploy documentation. Verso itself stores no registry
-credentials and does not perform those actions.
+Hooks are arbitrary project shell commands. Dry-run prints their names and commands but executes none.
+Pass secrets through the environment rather than storing them in config, keep hooks retry-safe, and
+prefer CI for destructive or credentialed publication. `after_push` is a follow-up boundary: it can be
+resumed, but it cannot undo remote refs. After an interrupted hook, confirm that its old process has
+stopped before retrying, skipping, or aborting the transaction.
 
 Before enabling automation, capture both checks in the target repository:
 
 ```sh
-verso doctor --json
-verso --dry-run --version <next-version> --json
+verso doctor --group core --json
+verso --group core --version <next-version> --dry-run --json
 ```

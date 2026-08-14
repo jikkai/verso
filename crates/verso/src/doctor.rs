@@ -4,7 +4,8 @@ use crate::{
     git,
     release::{current_version, release_root, verify_cargo_manifest_versions},
     workspace::{
-        discover_packages, resolve_package_manifest, verify_consistent_versions, PackageFile,
+        discover_packages, resolve_package_manifest, validate_release_path,
+        verify_consistent_versions, PackageFile,
     },
 };
 use semver::Version;
@@ -160,22 +161,25 @@ pub fn check(config_path: &Path, allow_missing_default_config: bool) -> DoctorRe
 
     if config.changelog.enabled {
         let changelog = root.join(&config.changelog.infile);
-        let changelog_parent_ok = changelog
-            .parent()
-            .is_some_and(|parent| parent.exists() && parent.is_dir());
-        if changelog_parent_ok {
-            checks.push(pass(
-                "changelog",
-                format!("{} can be written", changelog.display()),
-            ));
-        } else {
-            checks.push(fail(
+        match validate_release_path(&root, &changelog) {
+            Ok(())
+                if changelog
+                    .parent()
+                    .is_some_and(|parent| parent.exists() && parent.is_dir()) =>
+            {
+                checks.push(pass(
+                    "changelog",
+                    format!("{} can be written", changelog.display()),
+                ));
+            }
+            Ok(()) => checks.push(fail(
                 "changelog",
                 format!(
                     "parent directory for {} does not exist",
                     changelog.display()
                 ),
-            ));
+            )),
+            Err(error) => checks.push(fail("changelog", error)),
         }
     } else {
         checks.push(pass("changelog", "disabled"));
@@ -229,6 +233,14 @@ fn load_project_config(
     config_path: &Path,
     allow_missing_default_config: bool,
 ) -> Result<(Config, ConfigSource), String> {
+    let absolute_config_path = if config_path.is_absolute() {
+        config_path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| format!("failed to read current dir: {error}"))?
+            .join(config_path)
+    };
+    validate_release_path(root, &absolute_config_path)?;
     if config_path.exists() {
         return config::load_config(config_path)
             .map(|config| (config, ConfigSource::File(config_path.to_path_buf())));

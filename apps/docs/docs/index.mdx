@@ -9,9 +9,9 @@ the release manifests, writes one target version, optionally prepends a Conventi
 creates an annotated tag, and pushes the current upstream branch and that exact tag atomically.
 
 ```sh
-pnpm add -D @amamo/verso
-pnpm exec verso doctor
-pnpm exec verso --dry-run
+# Install @amamo/verso with your preferred package manager, then:
+verso doctor
+verso --dry-run
 ```
 
 <Callout variant="tip" title="The release boundary is intentionally small">

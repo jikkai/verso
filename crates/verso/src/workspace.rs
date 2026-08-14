@@ -8,7 +8,7 @@ use noyalib::borrowed::{from_str_borrowed, BorrowedValue};
 use std::{
     collections::BTreeSet,
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +59,7 @@ pub fn discover_packages(root: &Path, config: &Config) -> Result<Vec<PackageFile
 
     let mut packages = Vec::with_capacity(package_paths.len());
     for package_json in package_paths {
+        validate_release_path(root, &package_json)?;
         let dir = package_json
             .parent()
             .ok_or_else(|| format!("{} has no parent directory", package_json.display()))?
@@ -119,6 +120,7 @@ fn effective_workspace_patterns(root: &Path, config: &Config) -> Result<Vec<Stri
     let Some(root_manifest) = resolve_root_package_manifest(root, config) else {
         return Ok(Vec::new());
     };
+    validate_release_path(root, &root_manifest)?;
     Ok(read_package_manifest(&root_manifest)?
         .workspaces
         .unwrap_or_default())
@@ -126,6 +128,7 @@ fn effective_workspace_patterns(root: &Path, config: &Config) -> Result<Vec<Stri
 
 fn read_pnpm_workspace_patterns(root: &Path) -> Result<Option<Vec<String>>, String> {
     let path = root.join("pnpm-workspace.yaml");
+    validate_release_path(root, &path)?;
     if !path.exists() {
         return Ok(None);
     }
@@ -148,6 +151,57 @@ fn read_pnpm_workspace_patterns(root: &Path) -> Result<Option<Vec<String>>, Stri
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Some(patterns))
+}
+
+pub(crate) fn validate_release_path(root: &Path, path: &Path) -> Result<(), String> {
+    let unsafe_path = || {
+        format!(
+            "release plan contains an unsafe path outside {} or through a symbolic link: {}",
+            root.display(),
+            path.display()
+        )
+    };
+    if !root.is_absolute() || !path.is_absolute() {
+        return Err(unsafe_path());
+    }
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve release root {}: {error}", root.display()))?;
+    let relative = path.strip_prefix(root).map_err(|_| unsafe_path())?;
+    if relative.as_os_str().is_empty()
+        || relative.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir
+                    | Component::CurDir
+                    | Component::RootDir
+                    | Component::Prefix(_)
+            )
+        })
+    {
+        return Err(unsafe_path());
+    }
+
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        current.push(component.as_os_str());
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink()
+                    || !current
+                        .canonicalize()
+                        .is_ok_and(|resolved| resolved.starts_with(&canonical_root))
+                {
+                    return Err(unsafe_path());
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => {
+                return Err(format!("failed to inspect {}: {error}", current.display()));
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn verify_consistent_versions(packages: &[PackageFile]) -> Result<(), String> {
@@ -834,7 +888,7 @@ mod tests {
             changelog: ChangelogConfig {
                 enabled: true,
                 infile: "CHANGELOG.md".to_owned(),
-                preset: "angular".to_owned(),
+                preset: crate::changelog::ChangelogPreset::Angular,
             },
             git: GitConfig {
                 require_clean_worktree: true,

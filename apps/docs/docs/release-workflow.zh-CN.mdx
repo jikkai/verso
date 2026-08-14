@@ -1,90 +1,114 @@
 ---
-description: 理解 Verso 的校验、确认、修改、回滚、原子推送和 CI 交接边界。
+description: 理解 Verso 的准确计划、持久化事务、恢复、原子推送和 CI 交接边界。
 ---
 
 # 发布流程
 
-Verso 由一系列明确的本地检查点和最后一次远端事务组成。与其把整个命令理解成全有或全无，不如先确认
-执行停在哪个边界。
+Verso 会先计算一份准确的文件计划，再记录一系列明确的本地阶段和最后一次远端事务。持久化计划让中断的
+发布可以检查和恢复，无需重新计算原本要写入的内容。
 
 ## 写入之前
 
-Verso 会加载并检查项目、确定目标版本、要求当前位于有可用 upstream 的具名分支、拒绝落后分支、检查
-工作区策略，并拒绝已经存在的目标 tag。
+Verso 会加载一个发布组配置、发现成员、确认成员版本一致、确定一个目标版本，并计算每个文件实际的
+before 和 after 内容。完整发布还会计算 changelog、commit message、tag、hook 和原子推送；bump 计划
+只包含版本文件修改和版本 hook。
 
-默认策略要求整个工作区干净。设置 `git.require_clean_worktree = false` 后，可以保留无关的未暂存修改，
-但 Git index 以及本次发布涉及的所有 package manifest、Cargo manifest、Cargo lockfile 和 changelog
-仍必须干净。
-
-## 固定顺序
-
-```text
-检查 -> 选择版本 -> 确认文件
-  -> before_version -> 写文件 -> after_version
-  -> 确认提交 -> before_commit -> git add/commit -> after_commit
-  -> 确认 tag -> before_tag -> annotated tag -> after_tag
-  -> 确认推送 -> before_push -> 原子推送 -> after_push
+```sh
+verso --group core --version 2.0.0 --dry-run
+verso bump minor --group core --dry-run
 ```
 
-四个阶段确认默认都是“是”。目标版本不大于当前版本时，会更早出现一个默认“否”的确认。`--yes` 会接受
-所有确认。
+Dry-run 会输出这份准确计划，包括完整文件的 before/after diff，但不会写文件、运行 hook、创建事务日志
+或执行会修改 Git 的命令。
 
-## 执行错误与清理
+真实执行时，Verso 会检查工作区策略和计划路径、拒绝已有目标 tag，并获取仓库事务锁。每个 Git 仓库
+同时只能有一个 Verso 事务。
 
-清理是 best-effort，并且只针对 Verso 修改过的路径；它不会使用 hard reset。
+## 持久化阶段
 
-| 失败位置                                                | 最终本地状态                                                             |
-| ------------------------------------------------------- | ------------------------------------------------------------------------ |
-| 配置、检查、版本选择、`before_version`                  | 尚未写入 release 文件                                                    |
-| 写文件、`after_version`、`before_commit`、add 或 commit | 恢复已快照的文件，并取消 Verso 路径的暂存                                |
-| `after_commit`、`before_tag` 或创建 tag                 | `HEAD` 仍是预期 release commit 时，对它 soft reset，再恢复文件并取消暂存 |
-| `after_tag` 或 `before_push`                            | 删除新 tag，再回滚 release commit 和文件                                 |
-| 原子推送                                                | 保留本地 release commit 和 tag；远端要么同时接收两个 ref，要么都不接收   |
-| `after_push`                                            | 保留本地和远端 release 状态；推送已经成功                                |
+第一次文件修改确认后，Verso 会把计划和进度存入 Git metadata，并用原子文件替换写入。完整发布阶段为：
 
-如果 hook 意外移动 `HEAD`，Verso 会避免 reset 未知 commit，并报告清理不完整。恢复、取消暂存、reset 或
-删除 tag 的任何失败都会附加在原始错误后，方便手动恢复。
+```text
+planned
+  -> before_version -> 应用准确文件 -> files-applied -> after_version
+  -> before_commit -> git add/commit -> committed -> after_commit
+  -> before_tag -> annotated tag -> tagged -> after_tag
+  -> before_push -> git push --atomic -> pushed -> after_push
+  -> 清除事务
+```
 
-## 取消会保留已完成的工作
+`verso bump` 只经过 `planned -> files-applied`，运行 `before_version` 和 `after_version` 后清除事务。它不会
+修改 changelog、暂存文件、创建 commit 或 tag，也不会 push。
 
-在确认处回答“否”会以状态 1 退出，但不会进入执行错误的回滚路径：
+完整发布在文件、commit、tag 和 push 之前的确认默认都是“是”。目标版本不大于当前版本时，会更早出现
+一个默认“否”的确认。`--yes` 会接受所有确认。
 
-| 取消位置     | 有意保留的状态                           |
-| ------------ | ---------------------------------------- |
-| 修改文件之前 | 没有变化                                 |
-| commit 之前  | 更新后的 release 文件保留为未暂存状态    |
-| tag 之前     | 保留 release commit，不创建 tag          |
-| push 之前    | 本地保留 release commit 和 annotated tag |
+## Status、resume 与 abort
 
-这样每个检查点都可以检查。手动继续前，应确认 `HEAD`、工作区和 tag 都符合目标状态。
+```sh
+verso status [--json]
+verso resume [--retry-hook | --skip-hook]
+verso abort
+```
+
+`status` 是只读命令，会输出操作、发布组、阶段、版本对、修改文件数、中断的 hook，以及当前是否仍可
+abort。
+
+`resume` 会先用准确文件内容、`HEAD` 和 tag 对事务日志进行校准，跳过已完成的 hook 和确认，再从记录的
+阶段继续。进程停止时正在运行的 hook 结果未知；应先检查副作用，再明确使用 `--retry-hook` 或
+`--skip-hook`。
+
+`abort` 很保守：只通过 compare-and-delete 删除 Verso 创建的准确 tag object，只对预期 release commit
+做 soft reset，只取消计划路径的暂存，并且只在文件仍等于计划 after 内容时恢复。遇到意外 `HEAD`、移动
+过的 tag 或后来编辑的文件时，它会拒绝覆盖无关工作。release commit 创建后，abort 还会检查固定远端；
+若目标 tag 不属于事务，或 branch 已包含 release commit，则拒绝自动回滚。
+
+事务进入 `pushed` 阶段后禁止 abort，因为无法安全回滚远端 ref。此时应运行 `verso resume`，完成
+`after_push` 并清除日志。push 一旦开始，即使报告失败也不能 abort。准确的 tag object 与 peeled tag
+匹配且固定的远端 branch 等于或包含 release commit 时，resume 会确认成功；tag 缺失且 branch 不是
+release commit 时会重试相同的原子推送；ref 不完整或不匹配时会停止并要求手工恢复。resume 始终使用
+事务开始时持久化的 push URL；push 开始后即使本地 `HEAD` 前进，也仍使用持久化 commit 和 tag。
+
+## 错误与取消行为
+
+推送前可明确处理的文件、hook、commit 和 tag 错误会触发 best-effort 本地 abort。release hook 失败时
+会先检查固定远端；若无法检查，Verso 会保留事务，而不会假设 hook 没有发布。进程崩溃、用户在后续确认
+中取消或状态不明确时会保留事务日志；push 尚未开始时可选择 `resume` 或 `abort`。push 失败只允许
+`resume`。
+
+| 停止位置                     | 持久化状态与下一步                                                       |
+| ---------------------------- | ------------------------------------------------------------------------ |
+| 第一次文件确认之前           | 没有事务，也没有文件修改                                                 |
+| 已写文件 / commit 之前       | 文件保持未暂存；`resume` 会提交，`abort` 会恢复                          |
+| 已有 commit / tag 之前       | 保留预期 release commit；`resume` 会加 tag，`abort` 会 soft reset 并恢复 |
+| 已有 tag / push 之前         | 保留本地 commit 和 tag；`resume` 会推送，`abort` 会删除预期的本地修改    |
+| 原子推送失败                 | 保留本地 commit、tag 和日志；修复或检查远端后 `resume`                   |
+| 推送成功 / `after_push` 失败 | 保留本地和远端 ref；只允许 `resume`                                      |
+
+清理绝不会使用 hard reset。恢复、取消暂存、reset、删除 tag、日志或远端验证错误都会明确报告，而不会被隐藏。
 
 ## 原子推送细节
 
 Verso 会解析当前分支配置的 remote 和 merge ref，只推送下面两个 ref：
 
 ```text
-HEAD:refs/heads/<upstream-branch>
-refs/tags/<release-tag>:refs/tags/<release-tag>
+<release-commit-oid>:refs/heads/<upstream-branch>
+<tag-object-oid>:refs/tags/<release-tag>
 ```
 
-命令使用 `git push --atomic`，不会包含其他本地 tag。远端必须支持原子推送。如果事务被拒绝，先检查保留
-的本地 commit 和 tag，修复远端问题后再重试这两个准确 ref。
+命令使用 `git push --atomic`，不会包含其他本地 tag。远端必须支持原子推送，因此会同时接受两个 ref 或
+全部拒绝。Registry 发布、GitHub Release、二进制构建和部署仍应交给 tag 触发的 CI。
 
 ## Hook 与信任边界
 
-Hook 是任意项目 shell 命令。推送前的失败会使用上面的清理矩阵；`after_push` 是通知或后续处理边界，
-无法撤销远端 ref。应尽量把破坏性操作或需要凭据的发布行为留在 CI，而不是本地 hook。
-
-`--dry-run` 不会执行 hook，但会按阶段输出名称和命令，让审查者了解真正发布时将运行什么。
-
-## 交给 CI
-
-推送成功后，由 tag 触发的 CI 可以构建平台产物、证明二进制来源、发布 npm package、创建或更新 GitHub
-Release，并部署文档。Verso 本身不保存 registry 凭据，也不执行这些动作。
+Hook 是任意项目 shell 命令。Dry-run 会输出名称和命令，但不会执行。Secret 应通过环境传入，不要存进
+配置；hook 应当可以安全重试；破坏性操作或需要凭据的发布行为应优先放在 CI。`after_push` 是后续处理
+边界：可以 resume，但无法撤销远端 ref。hook 中断后，应先确认旧进程已经停止，再重试、跳过或 abort
+事务。
 
 开启自动化前，在目标仓库保留下面两项检查结果：
 
 ```sh
-verso doctor --json
-verso --dry-run --version <next-version> --json
+verso doctor --group core --json
+verso --group core --version <next-version> --dry-run --json
 ```
