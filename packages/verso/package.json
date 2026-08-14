@@ -1,6 +1,6 @@
 {
   "name": "@amamo/verso",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "A focused release CLI for JavaScript workspace packages.",
   "keywords": [
     "changelog",

@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0](https://github.com/jikkai/verso/compare/v1.0.1...v1.1.0) (2026-08-14)
+
+### Features
+
+* **release:** add grouped transactional release workflow ([5c74305](https://github.com/jikkai/verso/commit/5c743052d197cb6fa7f8a405c48b1b745b7a0009))
+
+### Other Changes (chore)
+
+* **deps:** bump @amamo/doctrine to 0.1.1 in apps/docs ([f76491f](https://github.com/jikkai/verso/commit/f76491f637d9348bc30804427fc7d7b1babc4218))
+* **docs:** migrate docs app from fumadocs/waku to @amamo/doctrine ([4dfc2c0](https://github.com/jikkai/verso/commit/4dfc2c0d131428023cfb747f49a8052ee46522e0))
+
+### Other Changes (docs)
+
+* refresh release documentation ([7746e9b](https://github.com/jikkai/verso/commit/7746e9bc127be05774d4f237c93672493601d8f3))
+
 ## [1.0.1](https://github.com/jikkai/verso/compare/v1.0.0...v1.0.1) (2026-08-06)
 
 ### Bug Fixes
