@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.0](https://github.com/jikkai/verso/compare/v1.1.0...v1.2.0) (2026-08-21)
+
+### Features
+
+* **release:** improve transaction recovery controls ([525be2d](https://github.com/jikkai/verso/commit/525be2de1d42d116382006fcb829e2a8ec4961b2))
+
 ## [1.1.0](https://github.com/jikkai/verso/compare/v1.0.1...v1.1.0) (2026-08-14)
 
 ### Features

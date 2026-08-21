@@ -1,6 +1,6 @@
 {
   "name": "@amamo/verso-win32-x64",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Windows x64 binary for @amamo/verso.",
   "homepage": "https://github.com/jikkai/verso#readme",
   "bugs": {
