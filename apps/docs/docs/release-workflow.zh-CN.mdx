@@ -48,7 +48,7 @@ planned
 ```sh
 verso status [--json]
 verso resume [--retry-hook | --skip-hook]
-verso abort
+verso abort [--force]
 ```
 
 `status` 是只读命令，会输出操作、发布组、阶段、版本对、修改文件数、中断的 hook，以及当前是否仍可
@@ -57,6 +57,9 @@ abort。
 `resume` 会先用准确文件内容、`HEAD` 和 tag 对事务日志进行校准，跳过已完成的 hook 和确认，再从记录的
 阶段继续。进程停止时正在运行的 hook 结果未知；应先检查副作用，再明确使用 `--retry-hook` 或
 `--skip-hook`。
+
+有事务时再次执行会修改仓库的 release 或 bump，Verso 会显示其发布组、版本对和阶段，再提示 resume 或
+abort。恢复操作会结束本次调用，不会接着开始用户刚请求的新发布。
 
 `abort` 很保守：只通过 compare-and-delete 删除 Verso 创建的准确 tag object，只对预期 release commit
 做 soft reset，只取消计划路径的暂存，并且只在文件仍等于计划 after 内容时恢复。遇到意外 `HEAD`、移动
@@ -68,6 +71,10 @@ abort。
 匹配且固定的远端 branch 等于或包含 release commit 时，resume 会确认成功；tag 缺失且 branch 不是
 release commit 时会重试相同的原子推送；ref 不完整或不匹配时会停止并要求手工恢复。resume 始终使用
 事务开始时持久化的 push URL；push 开始后即使本地 `HEAD` 前进，也仍使用持久化 commit 和 tag。
+
+如果用户已经手工修改 ref，或日志已损坏，导致精确恢复不再可行，应先检查仓库和远端，再执行
+`verso abort --force`。该命令只丢弃活动日志，刻意保留文件、commit、tag 与远端 ref 原样，避免自动
+回滚掩盖部分发布状态。
 
 ## 错误与取消行为
 

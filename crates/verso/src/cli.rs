@@ -77,7 +77,7 @@ pub enum Commands {
     #[command(about = "Continue the active release transaction")]
     Resume(ResumeArgs),
     #[command(about = "Abort and roll back the active release transaction")]
-    Abort,
+    Abort(AbortArgs),
 }
 
 #[derive(Debug, Args, PartialEq, Eq)]
@@ -106,6 +106,15 @@ pub struct ResumeArgs {
         help = "Mark an interrupted hook complete without re-running it"
     )]
     pub skip_hook: bool,
+}
+
+#[derive(Debug, Args, PartialEq, Eq)]
+pub struct AbortArgs {
+    #[arg(
+        long,
+        help = "Discard the transaction journal without changing files, commits, tags, or remote refs"
+    )]
+    pub force: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -380,7 +389,13 @@ mod tests {
             Cli::try_parse_from(["verso", "abort"])
                 .expect("abort should parse")
                 .command,
-            Some(Commands::Abort)
+            Some(Commands::Abort(AbortArgs { force: false }))
+        );
+        assert_eq!(
+            Cli::try_parse_from(["verso", "abort", "--force"])
+                .expect("force abort should parse")
+                .command,
+            Some(Commands::Abort(AbortArgs { force: true }))
         );
     }
 

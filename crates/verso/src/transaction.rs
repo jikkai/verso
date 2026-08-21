@@ -164,10 +164,17 @@ pub fn save(transaction: &ReleaseTransaction) -> Result<(), String> {
 }
 
 pub fn clear(root: &Path) -> Result<(), String> {
+    force_clear(root).map(|_| ())
+}
+
+pub fn force_clear(root: &Path) -> Result<bool, String> {
     let path = active_path(root)?;
     match fs::remove_file(&path) {
-        Ok(()) => sync_parent(path.parent()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(()) => {
+            sync_parent(path.parent())?;
+            Ok(true)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(format!(
             "failed to remove transaction journal {}: {error}",
             path.display()
@@ -353,6 +360,7 @@ pub fn render_status(transaction: Option<&ReleaseTransaction>, json_output: bool
             "pushStarted": transaction.push_started,
             "pushFailed": transaction.push_failed,
             "aborting": transaction.aborting,
+            "canForceAbort": true,
         }))
         .expect("transaction status should serialize");
     }
@@ -380,7 +388,9 @@ pub fn render_status(transaction: Option<&ReleaseTransaction>, json_output: bool
     if transaction.stage != TransactionStage::Pushed && !transaction.push_started {
         output.push_str(" or `verso abort` to roll back");
     }
-    output.push_str(".\n");
+    output.push_str(
+        ".\nRun `verso abort --force` only to discard the journal after manual recovery.\n",
+    );
     output
 }
 

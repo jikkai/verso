@@ -30,11 +30,11 @@
     "release": "cargo run -p verso"
   },
   "devDependencies": {
-    "@amamo/oxlint-config": "1.0.0",
-    "@types/node": "^26.1.2",
-    "oxfmt": "^0.62.0",
-    "oxlint": "^1.77.0",
-    "oxlint-tailwindcss": "^1.7.0",
+    "@amamo/oxlint-config": "1.1.0",
+    "@types/node": "^26.2.0",
+    "oxfmt": "^0.64.0",
+    "oxlint": "^1.79.0",
+    "oxlint-tailwindcss": "^1.10.0",
     "simple-git-hooks": "^2.13.1",
     "typescript": "^7.0.2"
   },
@@ -44,5 +44,5 @@
   "engines": {
     "node": ">=22.18.0"
   },
-  "packageManager": "pnpm@11.20.0"
+  "packageManager": "pnpm@11.22.0"
 }

@@ -53,7 +53,7 @@ of them.
 ```sh
 verso status [--json]
 verso resume [--retry-hook | --skip-hook]
-verso abort
+verso abort [--force]
 ```
 
 `status` is read-only. It reports the operation, release group, stage, version pair, changed-file
@@ -63,6 +63,10 @@ count, interrupted hook, and whether abort is still allowed.
 hooks and confirmations, then continues from the recorded stage. A hook that was active when the
 process stopped has an unknown outcome: inspect its side effects, then explicitly use `--retry-hook`
 or `--skip-hook`.
+
+If another mutating release or bump is started while a transaction is active, Verso shows its group,
+version pair, and stage, then prompts to resume or abort it. Recovery completes that invocation; it
+does not continue into the newly requested release.
 
 `abort` is conservative. It compare-and-deletes only the exact tag object Verso created, soft-resets
 only the expected release commit, unstages only planned paths, and restores a file only when it still
@@ -78,6 +82,11 @@ branch equals or contains that commit. It retries the same atomic push when the 
 branch is not the release commit, and stops for manual recovery when the refs are partial or
 mismatched. Resume keeps using the push URL persisted at transaction start.
 It also uses the persisted commit and tag if local `HEAD` advances after push starts.
+
+If exact recovery is no longer possible because the user already changed refs or the journal is
+damaged, inspect the repository and remote first. `verso abort --force` then discards only the active
+journal. It deliberately leaves files, commits, tags, and remote refs untouched, so it cannot hide a
+partially published release behind an automatic rollback.
 
 ## Failure and cancellation behavior
 

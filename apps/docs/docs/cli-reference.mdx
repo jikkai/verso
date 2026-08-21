@@ -120,17 +120,20 @@ A failed doctor report exits with status 1 even when JSON was written successful
 ```sh
 verso [--config <PATH> | --group <NAME>] status [--json]
 verso [--config <PATH> | --group <NAME>] resume [--retry-hook | --skip-hook]
-verso [--config <PATH> | --group <NAME>] abort
+verso [--config <PATH> | --group <NAME>] abort [--force]
 ```
 
 `status` shows the active operation, group, stage, version pair, interrupted hook, and changed-file
-count. With `--json`, it also reports `canAbort`, `pushStarted`, and `pushFailed`; when no transaction
-exists, it returns `{ "active": false }`.
+count. With `--json`, it also reports `canAbort`, `canForceAbort`, `pushStarted`, and `pushFailed`;
+when no transaction exists, it returns `{ "active": false }`.
 
 `resume` verifies the persisted plan against files, `HEAD`, and the release tag, skips completed
 hooks and confirmations, then continues from the recorded stage. If a hook was interrupted, inspect
 its side effects and explicitly choose `--retry-hook` to run it again or `--skip-hook` to mark it
 complete.
+
+Starting another mutating release or bump while a transaction is active first prompts to resume or
+abort the recorded transaction. The requested new release is not started in the same invocation.
 
 `abort` removes only the expected tag and release commit, unstages Verso paths, restores exact
 pre-plan file contents, and refuses to overwrite later edits or an unexpected `HEAD`. A transaction
@@ -140,6 +143,10 @@ exact tag object and peeled tag match the persisted release and the pinned remot
 contains that commit. It retries when the tag is absent and the branch is not the release commit,
 and stops for manual recovery if the refs are partial or mismatched. The push URL recorded when the
 transaction starts remains the destination after resume.
+
+After manually inspecting or recovering an exceptional state, `abort --force` discards the active
+journal without parsing its plan or changing local files, commits, tags, or remote refs. It is an
+unlock operation, not an automatic rollback.
 
 After the release commit exists, abort also checks that pinned destination before rewinding local
 state. A target tag not owned by the transaction or a branch already containing the release commit

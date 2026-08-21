@@ -84,11 +84,13 @@ commit、tag 或 push。
 - `verso --dry-run` 会输出准确的 before/after 文件 diff、hook、警告和 Git 命令，不写文件，也不修改 Git。
 - `verso bump patch|minor|major` 或 `verso bump --version <SEMVER>` 只应用版本文件修改。
 - 真正发布默认要求工作区干净。宽松模式仍要求 index 和 release 文件干净。
-- `verso status`、`verso resume` 和 `verso abort` 可以检查、继续或安全回滚中断的事务。发布一旦推送就不能
-  abort；此时应 resume，以完成剩余的 `after_push` 工作。
+- `verso status`、`verso resume` 和 `verso abort` 可以检查、继续或安全回滚中断的事务。再次执行会修改
+  仓库的 release 或 bump 时，Verso 会先提示 resume 或 abort 当前事务。发布一旦推送就不能安全回滚；
+  此时应 resume，以完成剩余的 `after_push` 工作。
 - 如果 hook 执行时中断，应先检查其副作用，再选择 `verso resume --retry-hook` 或
   `verso resume --skip-hook`。push 一旦开始，由于远端结果可能未知，不能 abort；resume 会先核验准确的
-  远端 tag object 与 release commit，并要求远端 branch 等于或包含该 commit，再完成或重试。
+  远端 tag object 与 release commit，并要求远端 branch 等于或包含该 commit，再完成或重试。手工恢复后，
+  `verso abort --force` 只丢弃事务日志，不修改任何文件或 ref。
 
 完整状态矩阵见[发布流程](https://jikkai.github.io/verso/zh-CN/release-workflow/)。
 

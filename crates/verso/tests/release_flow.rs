@@ -1303,6 +1303,180 @@ fn push_failure_requires_resume_and_rejects_partial_remote_state(
 }
 
 #[test]
+fn force_abort_unlocks_a_transaction_after_the_release_tag_was_removed(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Local release commit and tag were created",
+        ));
+    git(repo.path(), &["tag", "--delete", "v0.2.0"])?;
+    let remote = repo.path().join(".git/release-test-remote.git");
+    let remote_string = remote.to_str().ok_or("non-UTF-8 path")?;
+    git(repo.path(), &["init", "--bare", remote_string])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("resume")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("release tag v0.2.0 is missing"));
+    let head_before_force = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+    let package_before_force = fs::read_to_string(repo.path().join("package.json"))?;
+    let status_output = Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["status", "--json"])
+        .output()?;
+    let status: serde_json::Value = serde_json::from_slice(&status_output.stdout)?;
+    assert_eq!(status["canAbort"], false);
+    assert_eq!(status["canForceAbort"], true);
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["abort", "--force"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Discarded the active Verso transaction",
+        ))
+        .stderr(predicate::str::contains(
+            "did not change local files, commits, tags, or remote refs",
+        ));
+
+    let status_output = Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["status", "--json"])
+        .output()?;
+    let status: serde_json::Value = serde_json::from_slice(&status_output.stdout)?;
+    assert_eq!(status["active"], false);
+    assert_eq!(
+        git_stdout(repo.path(), &["rev-parse", "HEAD"])?,
+        head_before_force
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join("package.json"))?,
+        package_before_force
+    );
+    assert_eq!(git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?, "");
+
+    Ok(())
+}
+
+#[test]
+fn force_abort_can_discard_a_corrupt_transaction_journal() -> Result<(), Box<dyn std::error::Error>>
+{
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    let journal = repo.path().join(".git/verso/active.json");
+    write_file(&journal, "not valid JSON\n")?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("status")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "failed to parse transaction journal",
+        ));
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["abort", "--force"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Discarded the active Verso transaction",
+        ));
+
+    assert!(!journal.exists());
+
+    Ok(())
+}
+
+#[test]
+fn a_new_release_prompts_to_resume_or_abort_the_active_transaction(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0"])
+        .write_stdin("y\nn\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("release aborted"));
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.3.0"])
+        .write_stdin("abort\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "An active Verso transaction already exists",
+        ))
+        .stdout(predicate::str::contains("1) Resume"))
+        .stdout(predicate::str::contains("2) Abort"))
+        .stdout(predicate::str::contains(
+            "Aborted Verso transaction and restored release files",
+        ));
+
+    assert!(
+        fs::read_to_string(repo.path().join("package.json"))?.contains("\"version\": \"0.1.0\"")
+    );
+    assert!(!repo.path().join(".git/verso/active.json").exists());
+
+    Ok(())
+}
+
+#[test]
+fn choosing_resume_from_a_new_release_finishes_only_the_active_transaction(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0"])
+        .write_stdin("y\nn\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("release aborted"));
+    let remote = repo.path().join(".git/release-test-remote.git");
+    let remote_string = remote.to_str().ok_or("non-UTF-8 path")?;
+    git(repo.path(), &["init", "--bare", remote_string])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.3.0"])
+        .write_stdin("resume\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "An active Verso transaction already exists",
+        ));
+
+    assert!(
+        fs::read_to_string(repo.path().join("package.json"))?.contains("\"version\": \"0.2.0\"")
+    );
+    assert_eq!(
+        git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?.trim(),
+        "v0.2.0"
+    );
+    assert_eq!(git_stdout(repo.path(), &["tag", "--list", "v0.3.0"])?, "");
+    assert!(!repo.path().join(".git/verso/active.json").exists());
+
+    Ok(())
+}
+
+#[test]
 fn resume_uses_the_pinned_release_after_local_head_advances(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repo = TempDir::new()?;

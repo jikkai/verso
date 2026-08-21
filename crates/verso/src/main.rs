@@ -26,7 +26,9 @@ fn main() {
             Some(Commands::Resume(args)) => {
                 verso::release::resume(&config_path, &args).map(|()| true)
             }
-            Some(Commands::Abort) => verso::release::abort(&config_path).map(|()| true),
+            Some(Commands::Abort(args)) => {
+                verso::release::abort(&config_path, &args).map(|()| true)
+            }
             None => verso::release::run(cli).map(|()| true),
         },
     };

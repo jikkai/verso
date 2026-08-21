@@ -90,12 +90,15 @@ config + manifests + Git history
 - Real releases require a clean worktree by default. Relaxed mode still requires a clean index and
   clean release files.
 - `verso status`, `verso resume`, and `verso abort` inspect, continue, or safely roll back an
-  interrupted transaction. Once the release was pushed, it cannot be aborted; resume finishes any
-  remaining `after_push` work.
+  interrupted transaction. Starting another mutating release or bump while one is active prompts to
+  resume or abort it first. Once the release was pushed, it cannot be safely rolled back; resume
+  finishes any remaining `after_push` work.
 - If a hook was interrupted, inspect its side effects and choose `verso resume --retry-hook` or
   `verso resume --skip-hook`. Once a push has started, automatic abort is disabled because the remote
   outcome may be unknown; resume verifies the exact remote tag object and release commit before
-  finishing or retrying, and requires the remote branch to equal or contain that commit.
+  finishing or retrying, and requires the remote branch to equal or contain that commit. After
+  manual recovery, `verso abort --force` discards only the transaction journal and leaves all files
+  and refs unchanged.
 
 See the [release workflow](https://jikkai.github.io/verso/release-workflow/) for the complete state
 matrix.

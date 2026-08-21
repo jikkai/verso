@@ -1,6 +1,6 @@
 use crate::{
     cargo_manifest,
-    cli::{BumpArgs, BumpLevel, Cli, ResumeArgs},
+    cli::{AbortArgs, BumpArgs, BumpLevel, Cli, ResumeArgs},
     config,
     diagnostic::stdout_supports_color,
     doctor,
@@ -49,11 +49,10 @@ fn run_mode(cli: Cli, mode: PlanMode, bump_level: Option<BumpLevel>) -> Result<(
     } else {
         Some(transaction::lock(&root)?)
     };
-    if _lock.is_some() && transaction::load(&root)?.is_some() {
-        return Err(
-            "an active Verso transaction already exists\n\nhelp: run `verso status`, then `verso resume` or `verso abort`."
-                .to_string(),
-        );
+    if _lock.is_some() {
+        if let Some(mut active) = transaction::load(&root)? {
+            return recover_active_transaction(&mut active);
+        }
     }
     let planned_head = _lock
         .as_ref()
@@ -169,13 +168,7 @@ pub fn resume(config_path: &Path, args: &ResumeArgs) -> Result<(), String> {
     let _lock = transaction::lock(&root)?;
     let mut active = transaction::require(&root)?;
     verify_transaction_config(&active, config_path)?;
-    if active.aborting {
-        abort_transaction(&mut active, false)?;
-        println!("Completed the interrupted Verso rollback.");
-        return Ok(());
-    }
-    resolve_interrupted_hook(&mut active, args)?;
-    execute_transaction(&mut active, true, true).map_err(|failure| failure.message)
+    resume_transaction(&mut active, args)
 }
 
 fn resolve_interrupted_hook(
@@ -196,12 +189,98 @@ fn resolve_interrupted_hook(
     }
 }
 
-pub fn abort(config_path: &Path) -> Result<(), String> {
+pub fn abort(config_path: &Path, args: &AbortArgs) -> Result<(), String> {
     let root = release_root(config_path)?;
     let _lock = transaction::lock(&root)?;
+    if args.force {
+        if !transaction::force_clear(&root)? {
+            return Err("no active Verso transaction to discard".to_string());
+        }
+        eprintln!(
+            "warning: forced abort did not change local files, commits, tags, or remote refs."
+        );
+        println!("Discarded the active Verso transaction journal.");
+        return Ok(());
+    }
     let mut active = transaction::require(&root)?;
     verify_transaction_config(&active, config_path)?;
-    abort_transaction(&mut active, true)?;
+    abort_loaded_transaction(&mut active)
+}
+
+fn recover_active_transaction(active: &mut ReleaseTransaction) -> Result<(), String> {
+    let choice = prompt_active_transaction(active)?;
+    match choice {
+        ActiveTransactionChoice::Resume => resume_transaction(
+            active,
+            &ResumeArgs {
+                retry_hook: false,
+                skip_hook: false,
+            },
+        ),
+        ActiveTransactionChoice::Abort => abort_loaded_transaction(active),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveTransactionChoice {
+    Resume,
+    Abort,
+}
+
+impl fmt::Display for ActiveTransactionChoice {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Resume => formatter.write_str("Resume"),
+            Self::Abort => formatter.write_str("Abort"),
+        }
+    }
+}
+
+fn prompt_active_transaction(
+    active: &ReleaseTransaction,
+) -> Result<ActiveTransactionChoice, String> {
+    println!(
+        "An active Verso transaction already exists ({} {} -> {}, stage {}).",
+        active.plan.group,
+        active.plan.current_version,
+        active.plan.target_version,
+        active.stage.as_str(),
+    );
+    let choices = vec![
+        ActiveTransactionChoice::Resume,
+        ActiveTransactionChoice::Abort,
+    ];
+    if interactive_terminal() {
+        return Select::new("Recover the active transaction", choices)
+            .prompt()
+            .map_err(inquire_error);
+    }
+
+    println!("Choose how to recover it:");
+    for (index, choice) in choices.iter().enumerate() {
+        println!("  {}) {choice}", index + 1);
+    }
+    loop {
+        match read_prompt("Choice: ")?.to_ascii_lowercase().as_str() {
+            "1" | "r" | "resume" => return Ok(ActiveTransactionChoice::Resume),
+            "2" | "a" | "abort" => return Ok(ActiveTransactionChoice::Abort),
+            _ => println!("Please choose resume or abort."),
+        }
+    }
+}
+
+fn resume_transaction(active: &mut ReleaseTransaction, args: &ResumeArgs) -> Result<(), String> {
+    if active.aborting {
+        abort_transaction(active, false)?;
+        println!("Completed the interrupted Verso rollback.");
+        return Ok(());
+    }
+    resolve_interrupted_hook(active, args)?;
+    execute_transaction(active, true, true).map_err(|failure| failure.message)
+}
+
+fn abort_loaded_transaction(active: &mut ReleaseTransaction) -> Result<(), String> {
+    abort_transaction(active, true)?;
     println!("Aborted Verso transaction and restored release files.");
     Ok(())
 }
@@ -776,7 +855,7 @@ fn abort_transaction(active: &mut ReleaseTransaction, verify_push: bool) -> Resu
     let root = active.plan.root.clone();
     if active.push_started {
         return Err(
-            "cannot automatically abort after a push was started because its outcome may be unknown\n\nhelp: run `verso resume` to retry the exact release refs, or inspect the remote and recover manually."
+            "cannot automatically abort after a push was started because its outcome may be unknown\n\nhelp: run `verso resume` to retry the exact release refs. After manual recovery, run `verso abort --force` to discard only the transaction journal."
                 .to_string(),
         );
     }
