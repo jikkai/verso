@@ -1,4 +1,6 @@
-# Verso
+<p align="center">
+  <img src="brand/verso-readme-banner.svg" alt="Verso" width="800" />
+</p>
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
