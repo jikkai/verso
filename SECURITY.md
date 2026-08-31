@@ -17,8 +17,8 @@ Treat the repository and its release configuration as trusted input:
   pass them through the environment and control where preview output is stored.
 - Package manifests and Conventional Commit subjects are parsed and may be reproduced in diagnostics
   or changelog output. Do not store secrets in release metadata.
-- The npm wrapper executes the binary supplied by the platform-specific optional package. Install
-  `@amamo/verso` from the expected registry and retain the lockfile.
+- The installed `@amamo/verso` package runs a platform-specific executable. Install it from the
+  expected registry and retain the lockfile.
 
 `--dry-run` prevents Verso's own writes, hooks, commits, tags, and pushes. It is a planning tool, not a
 sandbox for untrusted repository content.

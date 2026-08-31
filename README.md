@@ -18,9 +18,9 @@ belong in tag-triggered CI.
 
 ## Requirements
 
-- Node.js 22.18 or newer for the npm wrapper.
+- Node.js 22.18 or newer.
 - Git, a named branch, and a configured upstream.
-- One supported native target: macOS arm64/x64, Linux GNU arm64/x64, or Windows x64.
+- A supported platform: macOS arm64/x64, Linux GNU arm64/x64, or Windows x64.
 - A `package.json`, `package.json5`, `package.yaml`, or `package.yml` with a valid SemVer version.
 
 ## Quick start
@@ -38,11 +38,18 @@ yarn add --dev @amamo/verso
 bun add --dev @amamo/verso
 ```
 
-A single-package repository needs no config file. For a workspace, create `verso.toml`:
+The examples below show Verso's CLI syntax. Invoke the local executable through your package manager
+or an existing project task; the [getting-started guide](https://jikkai.github.io/verso/getting-started/)
+shows the exact command for each supported package manager.
+
+A single-package repository needs no config file. Verso includes the root package by default. For a
+workspace whose root manifest should not share the released version, create `verso.toml` with an
+explicit package pattern:
 
 ```toml
 [workspaces]
 patterns = ["packages/*"]
+include_root = false
 ```
 
 Then inspect the repository and an exact release plan:
@@ -92,66 +99,20 @@ config + manifests + Git history
 - Real releases require a clean worktree by default. Relaxed mode still requires a clean index and
   clean release files.
 - `verso status`, `verso resume`, and `verso abort` inspect, continue, or safely roll back an
-  interrupted transaction. Starting another mutating release or bump while one is active prompts to
-  resume or abort it first. Once the release was pushed, it cannot be safely rolled back; resume
-  finishes any remaining `after_push` work.
-- If a hook was interrupted, inspect its side effects and choose `verso resume --retry-hook` or
-  `verso resume --skip-hook`. Once a push has started, automatic abort is disabled because the remote
-  outcome may be unknown; resume verifies the exact remote tag object and release commit before
-  finishing or retrying, and requires the remote branch to equal or contain that commit. After
-  manual recovery, `verso abort --force` discards only the transaction journal and leaves all files
-  and refs unchanged.
+  interrupted transaction. Once push starts, abort is disabled and recovery continues through
+  `resume`.
 
 See the [release workflow](https://jikkai.github.io/verso/release-workflow/) for the complete state
 matrix.
 
 ## Configuration
 
-Every key is optional. `verso init` writes a starter, and `--config <PATH>` makes the containing
-directory the release root. One config defines one release group; `--group core` selects
-`verso.core.toml`. Use separate configs for independently versioned groups. Versions within each
-group must remain consistent. Unknown keys are rejected; config paths must be relative, use forward
-slashes, and stay inside that root.
+Every key is optional. `verso init` writes a starter. `--config <PATH>` accepts a relative or absolute
+file path and makes its directory the release root; paths inside the file must stay relative to that
+root. One config defines one release group, and `--group core` selects `verso.core.toml`. Use separate
+configs for independently versioned groups.
 
-```toml
-[version]
-root_package = "package.json"
-require_consistent_versions = true
-cargo_manifest_paths = ["crates/cli/Cargo.toml"]
-
-[workspaces]
-patterns = ["packages/*", "!packages/fixtures"]
-include_root = true
-ignore = ["examples"]
-use_gitignore = true
-
-[changelog]
-enabled = true
-infile = "CHANGELOG.md"
-preset = "angular"
-
-[git]
-require_clean_worktree = true
-commit_message = "chore(release): release v${version}"
-tag_name = "v${version}"
-push = "atomic"
-
-[hooks]
-before_version = "pnpm test"
-before_push = "pnpm run check"
-```
-
-Empty workspace patterns are inferred from `pnpm-workspace.yaml`, then the root manifest's
-`workspaces` field. The first package manifest found in each matched directory wins in this order:
-JSON, JSON5, `package.yaml`, `package.yml`.
-
-Hooks are trusted shell commands and are included verbatim in dry-run output. Pass secrets through
-the environment instead of embedding them in `verso.toml`.
-
-`changelog.preset` accepts `angular` and `keep-a-changelog`. Changelog generation belongs to a full
-release; `bump` leaves it unchanged.
-
-Full details: [configuration](https://jikkai.github.io/verso/configuration/) and
+See the complete [configuration reference](https://jikkai.github.io/verso/configuration/) and
 [CLI reference](https://jikkai.github.io/verso/cli-reference/).
 
 ## Scope
@@ -160,7 +121,7 @@ Verso keeps one consistent version and tag per configured release group. Indepen
 groups use separate configs and are released one at a time; independent versions within one group
 are not supported. Named groups using the default tag template automatically get tags such as
 `core-v1.2.3`, avoiding collisions with other groups. Verso also does not support non-atomic push
-modes, local registry publishing, or `github_release.enabled = true`.
+modes, local registry publishing, or local GitHub Release creation.
 
 Maintainer setup and publishing are in [CONTRIBUTING.md](CONTRIBUTING.md). Security reports follow
 [SECURITY.md](SECURITY.md).

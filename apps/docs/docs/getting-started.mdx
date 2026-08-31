@@ -6,8 +6,7 @@ description: Install Verso, initialize discovery, validate the repository, and p
 
 ## Requirements
 
-The npm wrapper requires Node.js 22.18 or newer and installs one native optional dependency for the
-current platform.
+Verso requires Node.js 22.18 or newer and supports these platforms:
 
 | Operating system | CPU          |
 | ---------------- | ------------ |
@@ -18,24 +17,15 @@ current platform.
 The target repository also needs Git, at least one supported package manifest, and a named branch
 with an upstream. A real release is rejected when the local branch is behind that upstream.
 
-## Install the wrapper
+## Install Verso
 
-Add Verso at the workspace root with your preferred package manager:
+Add Verso at the project root with your preferred package manager:
 
-```sh
-# npm
-npm install --save-dev @amamo/verso
-# pnpm
-pnpm add --save-dev @amamo/verso
-# Yarn
-yarn add --dev @amamo/verso
-# Bun
-bun add --dev @amamo/verso
-```
+<InstallTabs dev packageName="@amamo/verso" />
 
-The examples use the `verso` executable directly and do not assume a `package.json` script name. The
-npm package resolves the platform package, repairs the executable bit on macOS and Linux when needed,
-then forwards the CLI exit status and signals.
+The reference pages write commands as `verso ...` so their arguments stay independent of a package
+manager. Invoke the locally installed executable through your package manager or an existing project
+task.
 
 ## Decide whether a config is needed
 
@@ -58,15 +48,51 @@ verso init --single
 
 `init` refuses to replace an existing file. Use `--force` only when replacing it is intentional.
 
+<Callout variant="note" title="Check whether the workspace root has a version">
+  The generated workspace config includes the root package. If the root `package.json` only
+  describes the workspace and should not share the released version, set `workspaces.include_root =
+  false` and keep `workspaces.patterns` explicit and nonempty.
+</Callout>
+
 ## Inspect release readiness
 
+Run the first check through the package manager that installed Verso:
+
+<Tabs defaultValue="pnpm">
+  <Tab label="pnpm" value="pnpm">
+
 ```sh
-verso doctor
+pnpm exec verso doctor
 ```
+
+  </Tab>
+  <Tab label="npm" value="npm">
+
+```sh
+npm exec --package=@amamo/verso -- verso doctor
+```
+
+  </Tab>
+  <Tab label="yarn" value="yarn">
+
+```sh
+yarn exec verso doctor
+```
+
+  </Tab>
+  <Tab label="bun" value="bun">
+
+```sh
+bunx --no-install verso doctor
+```
+
+  </Tab>
+</Tabs>
 
 `doctor` checks config loading, package discovery, the current version, shared package and Cargo
 versions, the changelog parent directory, and the named branch's upstream. It returns a nonzero exit
-status when any check fails. Automation can consume the same checks as JSON:
+status when any check fails. The remaining examples use `verso` as shorthand for the same local
+executable. Automation can consume the checks as JSON:
 
 ```sh
 verso doctor --json

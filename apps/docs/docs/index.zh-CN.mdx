@@ -1,17 +1,18 @@
 ---
-description: 用可检查的计划和原子 Git 交接，发布共用同一版本的 JavaScript workspace。
+description: 用可检查的计划和原子 Git 交接，发布共用同一版本的 JavaScript 项目。
 ---
 
-# 把一个 workspace 作为一个版本发布
+# 把一个 JavaScript 项目作为一个版本发布
 
-Verso 是面向统一版本仓库的原生发布 CLI。它会发现需要发布的 manifest，写入同一个目标版本，按需在
+Verso 是面向统一版本仓库的发布 CLI。它会发现需要发布的 manifest，写入同一个目标版本，按需在
 changelog 顶部加入 Conventional Commit 记录，创建 annotated tag，再原子推送当前上游分支和这个准确的 tag。
 
-```sh
-# 使用你偏好的 package manager 安装 @amamo/verso，然后：
-verso doctor
-verso --dry-run
-```
+在需要发布的仓库中安装 Verso：
+
+<InstallTabs dev packageName="@amamo/verso" />
+
+接着阅读[快速开始](/zh-CN/getting-started/)，通过安装 Verso 的 package manager 运行 `doctor`，并预览
+准确的发布计划。
 
 <Callout variant="tip" title="刻意保持较小的发布边界">
   Verso 负责准备并记录一次发布，不会发布 npm 包、创建 GitHub Release 或取代 CI。项目检查应放进
@@ -54,7 +55,9 @@ package manifest 时，可以不创建配置文件。
 
 ## 继续阅读
 
-- [快速开始](/zh-CN/getting-started/)：安装 Verso 并预览第一次发布。
-- [配置参考](/zh-CN/configuration/)：了解所有配置项和发现规则。
-- [CLI 参考](/zh-CN/cli-reference/)：查看命令、交互提示、JSON 输出和退出行为。
-- [发布流程](/zh-CN/release-workflow/)：理解确认点、回滚边界和 CI 交接。
+<CardGrid>
+  <Card title="快速开始">[安装 Verso 并预览第一次发布。](/zh-CN/getting-started/)</Card>
+  <Card title="发布流程">[理解确认点、恢复边界和 CI 交接。](/zh-CN/release-workflow/)</Card>
+  <Card title="配置参考">[查看所有配置项和 package 发现规则。](/zh-CN/configuration/)</Card>
+  <Card title="CLI 参考">[查询命令语法、JSON 输出和退出行为。](/zh-CN/cli-reference/)</Card>
+</CardGrid>

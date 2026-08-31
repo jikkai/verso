@@ -14,12 +14,14 @@ before 和 after 内容。完整发布还会计算 changelog、commit message、
 只包含版本文件修改和版本 hook。
 
 ```sh
-verso --group core --version 2.0.0 --dry-run
-verso bump minor --group core --dry-run
+verso --version 2.0.0 --dry-run
+verso bump minor --dry-run
 ```
 
 Dry-run 会输出这份准确计划，包括完整文件的 before/after diff，但不会写文件、运行 hook、创建事务日志
 或执行会修改 Git 的命令。
+
+使用命名发布组时，再添加 `--group core`。
 
 真实执行时，Verso 会检查工作区策略和计划路径、拒绝已有目标 tag，并获取仓库事务锁。每个 Git 仓库
 同时只能有一个 Verso 事务。
@@ -66,15 +68,16 @@ abort。恢复操作会结束本次调用，不会接着开始用户刚请求的
 过的 tag 或后来编辑的文件时，它会拒绝覆盖无关工作。release commit 创建后，abort 还会检查固定远端；
 若目标 tag 不属于事务，或 branch 已包含 release commit，则拒绝自动回滚。
 
-事务进入 `pushed` 阶段后禁止 abort，因为无法安全回滚远端 ref。此时应运行 `verso resume`，完成
-`after_push` 并清除日志。push 一旦开始，即使报告失败也不能 abort。准确的 tag object 与 peeled tag
-匹配且固定的远端 branch 等于或包含 release commit 时，resume 会确认成功；tag 缺失且 branch 不是
-release commit 时会重试相同的原子推送；ref 不完整或不匹配时会停止并要求手工恢复。resume 始终使用
-事务开始时持久化的 push URL；push 开始后即使本地 `HEAD` 前进，也仍使用持久化 commit 和 tag。
+<Callout variant="danger" title="Push 是恢复边界">
+  Push 一旦开始，由于远端结果可能未知，abort 就会被禁用。`verso resume` 会对照固定远端检查持久化的
+  tag 和 commit，再在安全时完成或重试同一次原子推送。ref 不完整或不匹配时必须手工恢复。
 
-如果用户已经手工修改 ref，或日志已损坏，导致精确恢复不再可行，应先检查仓库和远端，再执行
-`verso abort --force`。该命令只丢弃活动日志，刻意保留文件、commit、tag 与远端 ref 原样，避免自动
-回滚掩盖部分发布状态。
+如果无法再精确恢复，请先检查仓库和远端。`verso abort --force` 只丢弃活动日志，刻意保留文件、
+commit、tag 和远端 ref 原样。
+
+</Callout>
+
+即使 push 开始后本地 `HEAD` 前进，resume 仍会使用事务开始时持久化的 push URL、commit 和 tag。
 
 ## 错误与取消行为
 
@@ -94,7 +97,28 @@ release commit 时会重试相同的原子推送；ref 不完整或不匹配时�
 
 清理绝不会使用 hard reset。恢复、取消暂存、reset、删除 tag、日志或远端验证错误都会明确报告，而不会被隐藏。
 
+## Hook 与 CI 交接
+
+Hook 是任意项目 shell 命令。Dry-run 会输出名称和命令，但不会执行。Secret 应通过环境传入，不要存进
+配置；hook 应当可以安全重试；破坏性操作或需要凭据的发布行为应优先放在 CI。`after_push` 是后续处理
+边界：可以 resume，但无法撤销远端 ref。hook 中断后，应先确认旧进程已经停止，再重试、跳过或 abort
+事务。
+
+Registry 发布、GitHub Release、二进制构建和部署仍应交给 tag 触发的 CI。
+
+开启自动化前，在目标仓库保留下面两项检查结果：
+
+```sh
+verso doctor --json
+verso --version <next-version> --dry-run --json
+```
+
+自动化命名发布组时，请给两条命令都添加 `--group <NAME>`。
+
 ## 原子推送细节
+
+<details>
+  <summary>查看 Verso 推送的准确 ref</summary>
 
 Verso 会解析当前分支配置的 remote 和 merge ref，只推送下面两个 ref：
 
@@ -104,18 +128,6 @@ Verso 会解析当前分支配置的 remote 和 merge ref，只推送下面两�
 ```
 
 命令使用 `git push --atomic`，不会包含其他本地 tag。远端必须支持原子推送，因此会同时接受两个 ref 或
-全部拒绝。Registry 发布、GitHub Release、二进制构建和部署仍应交给 tag 触发的 CI。
+全部拒绝。
 
-## Hook 与信任边界
-
-Hook 是任意项目 shell 命令。Dry-run 会输出名称和命令，但不会执行。Secret 应通过环境传入，不要存进
-配置；hook 应当可以安全重试；破坏性操作或需要凭据的发布行为应优先放在 CI。`after_push` 是后续处理
-边界：可以 resume，但无法撤销远端 ref。hook 中断后，应先确认旧进程已经停止，再重试、跳过或 abort
-事务。
-
-开启自动化前，在目标仓库保留下面两项检查结果：
-
-```sh
-verso doctor --group core --json
-verso --group core --version <next-version> --dry-run --json
-```
+</details>

@@ -16,12 +16,14 @@ A full release also calculates the changelog, commit message, tag, hooks, and at
 contains only version-file changes and version hooks.
 
 ```sh
-verso --group core --version 2.0.0 --dry-run
-verso bump minor --group core --dry-run
+verso --version 2.0.0 --dry-run
+verso bump minor --dry-run
 ```
 
 Dry-run renders that exact plan, including full-file before/after diffs, without writing files,
 running hooks, creating a transaction journal, or executing mutating Git commands.
+
+Add `--group core` when working with a named release group.
 
 For execution, Verso checks the worktree policy and planned paths, rejects an existing target tag,
 and takes a repository transaction lock. Only one Verso transaction may be active per Git repository.
@@ -74,19 +76,19 @@ matches the plan's after content. It refuses an unexpected `HEAD`, moved tag, or
 rather than overwriting unrelated work. Once the release commit exists, abort also checks the pinned
 remote and refuses an unowned target tag or a branch that already contains the release commit.
 
-Once the transaction reaches `pushed`, abort is forbidden because the remote refs cannot be rolled
-back safely. Run `verso resume` to finish `after_push` and clear the journal. Once push starts, its
-outcome may be unknown, so abort remains disabled even after a reported push failure. Resume accepts
-success when the exact tag object and peeled tag match the persisted release and the pinned remote
-branch equals or contains that commit. It retries the same atomic push when the tag is absent and the
-branch is not the release commit, and stops for manual recovery when the refs are partial or
-mismatched. Resume keeps using the push URL persisted at transaction start.
-It also uses the persisted commit and tag if local `HEAD` advances after push starts.
+<Callout variant="danger" title="Push is the recovery boundary">
+  Once push starts, abort is disabled because the remote outcome may be unknown. `verso resume`
+  verifies the persisted tag and commit against the pinned remote, then finishes or retries the same
+  atomic push when safe. Partial or mismatched refs require manual recovery.
 
-If exact recovery is no longer possible because the user already changed refs or the journal is
-damaged, inspect the repository and remote first. `verso abort --force` then discards only the active
-journal. It deliberately leaves files, commits, tags, and remote refs untouched, so it cannot hide a
-partially published release behind an automatic rollback.
+If exact recovery is no longer possible, inspect the repository and remote first. `verso abort
+  --force` discards only the active journal; it deliberately leaves files, commits, tags, and remote
+refs untouched.
+
+</Callout>
+
+Resume keeps using the push URL, commit, and tag persisted when the transaction started, even if
+local `HEAD` advances after push begins.
 
 ## Failure and cancellation behavior
 
@@ -108,7 +110,30 @@ later confirmation, or an ambiguous state preserves the journal so the user can 
 Cleanup never uses a hard reset. Restore, unstage, reset, tag-delete, journal, or remote-verification
 errors are reported instead of being hidden.
 
+## Hooks and CI handoff
+
+Hooks are arbitrary project shell commands. Dry-run prints their names and commands but executes none.
+Pass secrets through the environment rather than storing them in config, keep hooks retry-safe, and
+prefer CI for destructive or credentialed publication. `after_push` is a follow-up boundary: it can be
+resumed, but it cannot undo remote refs. After an interrupted hook, confirm that its old process has
+stopped before retrying, skipping, or aborting the transaction.
+
+Registry publication, GitHub Releases, binary builds, and deployment remain the responsibility of
+tag-triggered CI.
+
+Before enabling automation, capture both checks in the target repository:
+
+```sh
+verso doctor --json
+verso --version <next-version> --dry-run --json
+```
+
+Add `--group <NAME>` to both commands when automating a named release group.
+
 ## Atomic push details
+
+<details>
+  <summary>Show the exact refs pushed by Verso</summary>
 
 Verso resolves the current branch's configured remote and merge ref, then pushes only these two refs:
 
@@ -118,20 +143,6 @@ Verso resolves the current branch's configured remote and merge ref, then pushes
 ```
 
 The command uses `git push --atomic`; unrelated local tags are not included. The remote must support
-atomic pushes, so it accepts both refs or neither. Registry publication, GitHub Releases, binary
-builds, and deployment remain the responsibility of tag-triggered CI.
+atomic pushes, so it accepts both refs or neither.
 
-## Hooks and trust
-
-Hooks are arbitrary project shell commands. Dry-run prints their names and commands but executes none.
-Pass secrets through the environment rather than storing them in config, keep hooks retry-safe, and
-prefer CI for destructive or credentialed publication. `after_push` is a follow-up boundary: it can be
-resumed, but it cannot undo remote refs. After an interrupted hook, confirm that its old process has
-stopped before retrying, skipping, or aborting the transaction.
-
-Before enabling automation, capture both checks in the target repository:
-
-```sh
-verso doctor --group core --json
-verso --group core --version <next-version> --dry-run --json
-```
+</details>

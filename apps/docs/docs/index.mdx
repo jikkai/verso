@@ -1,18 +1,19 @@
 ---
-description: Release a shared-version JavaScript workspace with an inspectable plan and an atomic Git handoff.
+description: Release a shared-version JavaScript project with an inspectable plan and an atomic Git handoff.
 ---
 
-# Release one workspace as one version
+# Release a JavaScript project as one version
 
-Verso is a native release CLI for repositories whose JavaScript packages move together. It discovers
+Verso is a release CLI for repositories whose JavaScript packages move together. It discovers
 the release manifests, writes one target version, optionally prepends a Conventional Commit changelog,
 creates an annotated tag, and pushes the current upstream branch and that exact tag atomically.
 
-```sh
-# Install @amamo/verso with your preferred package manager, then:
-verso doctor
-verso --dry-run
-```
+Install Verso in the repository you want to release:
+
+<InstallTabs dev packageName="@amamo/verso" />
+
+Continue with [Getting started](/getting-started/) to run `doctor` through the package manager that
+installed Verso and preview an exact release plan.
 
 <Callout variant="tip" title="The release boundary is intentionally small">
   Verso prepares and records a release. It does not publish packages, create a GitHub Release, or
@@ -59,7 +60,15 @@ inside the local transaction, or when your remote cannot accept atomic pushes.
 
 ## Continue
 
-- [Getting started](/getting-started/) installs Verso and previews a first release.
-- [Configuration](/configuration/) documents every key and discovery rule.
-- [CLI reference](/cli-reference/) covers commands, prompts, JSON output, and exit behavior.
-- [Release workflow](/release-workflow/) shows confirmations, rollback boundaries, and CI handoff.
+<CardGrid>
+  <Card title="Getting started">
+    [Install Verso and preview a first release.](/getting-started/)
+  </Card>
+  <Card title="Release workflow">
+    [Understand confirmations, recovery boundaries, and the CI handoff.](/release-workflow/)
+  </Card>
+  <Card title="Configuration">[Review every key and package discovery rule.](/configuration/)</Card>
+  <Card title="CLI reference">
+    [Find command syntax, JSON output, and exit behavior.](/cli-reference/)
+  </Card>
+</CardGrid>

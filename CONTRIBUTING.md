@@ -4,22 +4,24 @@ Thanks for taking the time to improve Verso.
 
 ## Local Setup
 
-Requires Node.js 22.18.0+ and Rust 1.85+ (pinned via `rust-toolchain.toml`).
+Requires Node.js 22.18.0+ and Rust stable. The crate declares Rust 1.85 as its minimum supported
+version; `rust-toolchain.toml` selects the current stable toolchain with clippy and rustfmt.
 
 ```sh
 pnpm install
 pnpm run check
 ```
 
-`pnpm run check` is what CI runs on Linux, macOS, and Windows. It covers:
+`pnpm run check` is what CI runs on Ubuntu. It covers:
 
-- `oxfmt --check` for TypeScript and `.mts` files
+- `oxfmt --check .` for supported text files
 - `oxlint`
 - `cargo fmt --check`
 - `cargo clippy --locked --all-targets --all-features -- -D warnings`
 - `cargo test --locked --all`
-- TypeScript checks for the release helper scripts and the npm wrapper
-- Wrapper tests
+- TypeScript checks for release helper scripts
+- Type-checking and a build smoke test for the npm package
+- Doctrine docs type-checking and production build
 
 ## Code Standards
 
@@ -39,8 +41,8 @@ which checks oxfmt, rustfmt, and oxlint before a commit is created.
 
 ## Package Topology
 
-The npm wrapper and native platform packages are intentionally kept in one
-workspace. When adding or removing a supported platform, update these
+The npm package and platform-specific binary packages are intentionally kept in
+one workspace. When adding or removing a supported platform, update these
 together:
 
 - `packages/verso/src/resolve.ts`

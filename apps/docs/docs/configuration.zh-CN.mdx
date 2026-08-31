@@ -2,15 +2,18 @@
 description: 配置发布根目录、workspace 发现、版本文件、changelog、Git 策略和 hook。
 ---
 
-# 配置发布边界
+# 配置参考
 
 Verso 默认读取当前目录的 `verso.toml`；也可以传入 `--config <PATH>` 或 `--group <NAME>`。
-`--group core` 会选择 `verso.core.toml`。所选配置文件所在目录会成为发布根目录：package 模式、
-manifest、changelog、hook 和 Git 命令都从这里解析。
+`--config` 接受相对或绝对文件路径，`--group core` 则会选择 `verso.core.toml`。所选配置文件所在目录
+会成为发布根目录：package 模式、manifest、changelog、hook 和 Git 命令都从这里解析。
 
-未知的 table 或配置项会被拒绝。配置路径必须是相对路径、使用正斜杠，且不能包含 `..` 或逃逸发布根目录。
+未知的 table 或配置项会被拒绝。写在 `verso.toml` 内的路径和模式必须相对于发布根目录、使用正斜杠，
+且不能包含父目录段（`..`）。
 
-## 完整默认模型
+## 默认配置
+
+<CodeBlock filename="verso.toml">
 
 ```toml
 [version]
@@ -44,13 +47,48 @@ push = "atomic"
 # after_tag = "node scripts/record-tag.mjs"
 # before_push = "pnpm check"
 # after_push = "node scripts/notify.mjs"
-
-[github_release]
-enabled = false
 ```
+
+</CodeBlock>
 
 所有 table 和配置项都是可选的。默认配置路径不存在、但根 package manifest 存在时，Verso 会直接采用这些
 值而不创建文件。显式指定但不存在的配置文件始终是错误。
+
+<Callout variant="tip" title="从最小配置开始">
+  单包项目通常不需要配置文件。大多数 workspace 只需从 `[workspaces]` table
+  开始；只有行为需要偏离默认值时，再添加其他 section。
+</Callout>
+
+## Workspace 发现
+
+`workspaces.patterns` 为空时，Verso 会先读取 `pnpm-workspace.yaml` 的 `packages`，再读取根 manifest 的
+`workspaces` 字段；两者都没有模式时，只使用根 package。
+
+| 配置项          | 默认值 | 行为                                                             |
+| --------------- | ------ | ---------------------------------------------------------------- |
+| `patterns`      | `[]`   | include glob；支持 `*`、`**`、`?`、字符类、brace 和前导 `!` 排除 |
+| `include_root`  | `true` | 包含 `version.root_package` 选中的 manifest                      |
+| `ignore`        | `[]`   | 排除匹配路径；`fixtures` 这类普通片段会排除任意位置同名目录      |
+| `use_gitignore` | `true` | 遍历时读取根目录和嵌套目录的 `.gitignore`                        |
+
+`node_modules` 和 `.git` 永远被排除。设置 `include_root = false` 时，`patterns` 必须显式且非空，不能在
+这种组合下依赖自动推断 workspace 模式。
+
+如果根 manifest 只描述 workspace，不应共用发布组版本，请设置 `include_root = false`。
+
+每个匹配目录按以下顺序选择第一个存在的 manifest：`package.json`、`package.json5`、`package.yaml`、
+`package.yml`。Verso 只替换顶层 `version` 标量，并保留文件其余部分的格式。
+
+## 版本来源
+
+| 配置项                        | 默认值         | 行为                                                                        |
+| ----------------------------- | -------------- | --------------------------------------------------------------------------- |
+| `root_package`                | `package.json` | 提供当前版本；启用 `include_root` 时也参与更新                              |
+| `require_consistent_versions` | `true`         | 必须保持为 `true`；成员版本不一致时拒绝，以确保组只有一个当前版本           |
+| `cargo_manifest_paths`        | `[]`           | 更新每个 manifest 的 `[package].version`，并按需更新最近的上级 `Cargo.lock` |
+
+默认的 `root_package` 不存在时，Verso 可以解析发布根目录中的其他受支持 manifest；自定义
+`root_package` 则会严格按配置路径使用。
 
 ## 发布组
 
@@ -70,35 +108,6 @@ verso.ui.toml    -> verso --group ui --version 2.0.0 --yes
 
 `--group <NAME>` 与 `--config <PATH>` 互斥。组名必须以 ASCII 字母或数字开头，后续可以使用 ASCII 字母、
 数字、`-` 和 `_`。
-
-## Workspace 发现
-
-`workspaces.patterns` 为空时，Verso 会先读取 `pnpm-workspace.yaml` 的 `packages`，再读取根 manifest 的
-`workspaces` 字段；两者都没有模式时，只使用根 package。
-
-| 配置项          | 默认值 | 行为                                                             |
-| --------------- | ------ | ---------------------------------------------------------------- |
-| `patterns`      | `[]`   | include glob；支持 `*`、`**`、`?`、字符类、brace 和前导 `!` 排除 |
-| `include_root`  | `true` | 包含 `version.root_package` 选中的 manifest                      |
-| `ignore`        | `[]`   | 排除匹配路径；`fixtures` 这类普通片段会排除任意位置同名目录      |
-| `use_gitignore` | `true` | 遍历时读取根目录和嵌套目录的 `.gitignore`                        |
-
-`node_modules` 和 `.git` 永远被排除。设置 `include_root = false` 时，`patterns` 必须显式且非空，不能在
-这种组合下依赖自动推断 workspace 模式。
-
-每个匹配目录按以下顺序选择第一个存在的 manifest：`package.json`、`package.json5`、`package.yaml`、
-`package.yml`。Verso 只替换顶层 `version` 标量，并保留文件其余部分的格式。
-
-## 版本来源
-
-| 配置项                        | 默认值         | 行为                                                                        |
-| ----------------------------- | -------------- | --------------------------------------------------------------------------- |
-| `root_package`                | `package.json` | 提供当前版本；启用 `include_root` 时也参与更新                              |
-| `require_consistent_versions` | `true`         | 必须保持为 `true`；成员版本不一致时拒绝，以确保组只有一个当前版本           |
-| `cargo_manifest_paths`        | `[]`           | 更新每个 manifest 的 `[package].version`，并按需更新最近的上级 `Cargo.lock` |
-
-默认的 `root_package` 不存在时，Verso 可以解析发布根目录中的其他受支持 manifest；自定义
-`root_package` 则会严格按配置路径使用。
 
 ## Changelog
 
@@ -133,7 +142,7 @@ origin，还会更新 `[Unreleased]` 和版本链接定义。
 | `push`                   | `atomic`                              | 在一个原子命令中推送当前 upstream 分支和准确 release tag |
 
 设置 `require_clean_worktree = false` 后，可以存在无关的未暂存文件，但 index 和所有 release 文件仍必须
-干净。`follow-tags` 只作为旧配置别名，读取后会归一化为 `atomic`；Verso 不提供非原子推送模式。
+干净。Verso 不提供非原子推送模式。
 
 ## Hook 是受信任的 shell 命令
 
@@ -142,7 +151,8 @@ Hook 从发布根目录运行：macOS/Linux 使用 `sh -c`，Windows 使用 `cmd
 
 `verso bump` 只运行 `before_version` 和 `after_version`；commit、tag 与 push hook 只属于完整发布。
 
-Dry-run 会输出 hook 命令，因此不要把 secret 直接写进配置。敏感值应通过进程环境传入，并让
-`verso.toml` 保持可审查。各 hook 边界的清理行为见[发布流程](/zh-CN/release-workflow/)。
-
-`github_release.enabled = true` 目前会被拒绝。请在 tag 推送完成后由 CI 创建 GitHub Release。
+<Callout variant="warning" title="Hook 会以你的权限运行">
+  Dry-run 会输出 hook 命令，因此不要把 secret 直接写进配置。敏感值应通过进程环境传入，让
+  `verso.toml` 保持可审查，并把需要凭据的发布或 GitHub Release 创建交给 tag 触发的 CI。各 hook
+  边界的清理行为见[发布流程](/zh-CN/release-workflow/)。
+</Callout>

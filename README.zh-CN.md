@@ -16,9 +16,9 @@ Verso 刻意在这里结束。Registry 发布、GitHub Release、二进制构建
 
 ## 运行条件
 
-- npm wrapper 要求 Node.js 22.18 或更高版本。
+- Node.js 22.18 或更高版本。
 - Git、具名分支和已配置的 upstream。
-- 受支持的原生目标：macOS arm64/x64、Linux GNU arm64/x64 或 Windows x64。
+- 受支持的平台：macOS arm64/x64、Linux GNU arm64/x64 或 Windows x64。
 - 包含有效 SemVer 的 `package.json`、`package.json5`、`package.yaml` 或 `package.yml`。
 
 ## 快速开始
@@ -36,11 +36,17 @@ yarn add --dev @amamo/verso
 bun add --dev @amamo/verso
 ```
 
-单包仓库不需要配置文件。Workspace 可以创建 `verso.toml`：
+下面的示例表示 Verso 的 CLI 语法。请通过 package manager 或项目已有任务调用本地 executable；
+[快速开始](https://jikkai.github.io/verso/zh-CN/getting-started/)列出了每种受支持 package manager 的
+准确命令。
+
+单包仓库不需要配置文件。Verso 默认包含根 package。如果 workspace 根 manifest 不应共用发布版本，
+请创建含显式 package 模式的 `verso.toml`：
 
 ```toml
 [workspaces]
 patterns = ["packages/*"]
+include_root = false
 ```
 
 先检查仓库和一个准确的发布计划：
@@ -86,58 +92,16 @@ commit、tag 或 push。
 - `verso --dry-run` 会输出准确的 before/after 文件 diff、hook、警告和 Git 命令，不写文件，也不修改 Git。
 - `verso bump patch|minor|major` 或 `verso bump --version <SEMVER>` 只应用版本文件修改。
 - 真正发布默认要求工作区干净。宽松模式仍要求 index 和 release 文件干净。
-- `verso status`、`verso resume` 和 `verso abort` 可以检查、继续或安全回滚中断的事务。再次执行会修改
-  仓库的 release 或 bump 时，Verso 会先提示 resume 或 abort 当前事务。发布一旦推送就不能安全回滚；
-  此时应 resume，以完成剩余的 `after_push` 工作。
-- 如果 hook 执行时中断，应先检查其副作用，再选择 `verso resume --retry-hook` 或
-  `verso resume --skip-hook`。push 一旦开始，由于远端结果可能未知，不能 abort；resume 会先核验准确的
-  远端 tag object 与 release commit，并要求远端 branch 等于或包含该 commit，再完成或重试。手工恢复后，
-  `verso abort --force` 只丢弃事务日志，不修改任何文件或 ref。
+- `verso status`、`verso resume` 和 `verso abort` 可以检查、继续或安全回滚中断的事务。Push 一旦开始，
+  abort 就会被禁用，恢复只能通过 `resume` 继续。
 
 完整状态矩阵见[发布流程](https://jikkai.github.io/verso/zh-CN/release-workflow/)。
 
 ## 配置
 
-所有配置项都可选。`verso init` 可以生成初始文件；`--config <PATH>` 会把配置文件所在目录作为发布根目录。
-一个配置对应一个发布组；`--group core` 会选择 `verso.core.toml`。独立版本组应使用独立配置，每个组内的
-版本必须一致。未知配置项会被拒绝；配置路径必须是相对路径、使用正斜杠，并留在发布根目录内。
-
-```toml
-[version]
-root_package = "package.json"
-require_consistent_versions = true
-cargo_manifest_paths = ["crates/cli/Cargo.toml"]
-
-[workspaces]
-patterns = ["packages/*", "!packages/fixtures"]
-include_root = true
-ignore = ["examples"]
-use_gitignore = true
-
-[changelog]
-enabled = true
-infile = "CHANGELOG.md"
-preset = "angular"
-
-[git]
-require_clean_worktree = true
-commit_message = "chore(release): release v${version}"
-tag_name = "v${version}"
-push = "atomic"
-
-[hooks]
-before_version = "pnpm test"
-before_push = "pnpm run check"
-```
-
-Workspace 模式为空时，会先从 `pnpm-workspace.yaml` 推断，再读取根 manifest 的 `workspaces` 字段。
-每个匹配目录按 JSON、JSON5、`package.yaml`、`package.yml` 的顺序选择第一个 manifest。
-
-Hook 是受信任的 shell 命令，并会原样出现在 dry-run 输出中。Secret 应通过环境传入，不要写进
-`verso.toml`。
-
-`changelog.preset` 接受 `angular` 和 `keep-a-changelog`。只有完整发布会生成 changelog；`bump` 不会
-修改它。
+所有配置项都可选。`verso init` 可以生成初始文件。`--config <PATH>` 接受相对或绝对文件路径，并把其
+所在目录作为发布根目录；文件内路径必须保持相对于该根目录。一个配置对应一个发布组，`--group core`
+会选择 `verso.core.toml`。独立版本组应使用独立配置。
 
 完整说明见[配置参考](https://jikkai.github.io/verso/zh-CN/configuration/)和
 [CLI 参考](https://jikkai.github.io/verso/zh-CN/cli-reference/)。
@@ -146,7 +110,7 @@ Hook 是受信任的 shell 命令，并会原样出现在 dry-run 输出中。Se
 
 Verso 让每个已配置发布组共用一个统一版本和 tag。独立版本组使用独立配置，并且一次只发布一个组；同一
 组内不支持独立版本。使用默认 tag 模板的命名组会自动生成 `core-v1.2.3` 这类 tag，避免组间冲突。
-Verso 也不支持非原子推送、本地 registry 发布或 `github_release.enabled = true`。
+Verso 也不支持非原子推送、本地 registry 发布或在本地创建 GitHub Release。
 
 维护者开发和发布流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全问题请按 [SECURITY.md](SECURITY.md)
 报告。

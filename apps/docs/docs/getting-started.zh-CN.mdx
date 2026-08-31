@@ -6,7 +6,7 @@ description: 安装 Verso、初始化发现规则、检查仓库，并预览准�
 
 ## 运行条件
 
-npm wrapper 要求 Node.js 22.18 或更高版本，并会为当前平台安装一个原生 optional dependency。
+Verso 要求 Node.js 22.18 或更高版本，并支持以下平台：
 
 | 操作系统     | CPU          |
 | ------------ | ------------ |
@@ -17,23 +17,14 @@ npm wrapper 要求 Node.js 22.18 或更高版本，并会为当前平台安装�
 待发布仓库还需要 Git、至少一个受支持的 package manifest，以及配置了 upstream 的具名分支。真正发布时，
 如果本地分支落后于 upstream，Verso 会拒绝继续。
 
-## 安装 wrapper
+## 安装 Verso
 
-使用你偏好的 package manager 在 workspace 根目录添加 Verso：
+使用你偏好的 package manager 在项目根目录添加 Verso：
 
-```sh
-# npm
-npm install --save-dev @amamo/verso
-# pnpm
-pnpm add --save-dev @amamo/verso
-# Yarn
-yarn add --dev @amamo/verso
-# Bun
-bun add --dev @amamo/verso
-```
+<InstallTabs dev packageName="@amamo/verso" />
 
-下面的示例直接使用 `verso` executable，不假设 `package.json` script 的名称。npm package 会解析当前
-平台的 package，在 macOS 和 Linux 上按需修复 executable bit，再转发 CLI 的退出状态和信号。
+参考文档统一用 `verso ...` 表示 CLI 参数，避免绑定某一种 package manager。请通过安装 Verso 的
+package manager 或项目已有任务调用本地 executable。
 
 ## 判断是否需要配置文件
 
@@ -55,14 +46,50 @@ verso init --single
 
 `init` 默认拒绝覆盖已有文件。只有确实要替换配置时才使用 `--force`。
 
+<Callout variant="note" title="确认 workspace 根目录是否有版本">
+  生成的 workspace 配置默认包含根 package。如果根 `package.json` 只描述
+  workspace，不应共用发布版本，请设置 `workspaces.include_root = false`，并保留显式且非空的
+  `workspaces.patterns`。
+</Callout>
+
 ## 检查发布条件
 
+通过安装 Verso 的 package manager 运行第一次检查：
+
+<Tabs defaultValue="pnpm">
+  <Tab label="pnpm" value="pnpm">
+
 ```sh
-verso doctor
+pnpm exec verso doctor
 ```
 
+  </Tab>
+  <Tab label="npm" value="npm">
+
+```sh
+npm exec --package=@amamo/verso -- verso doctor
+```
+
+  </Tab>
+  <Tab label="yarn" value="yarn">
+
+```sh
+yarn exec verso doctor
+```
+
+  </Tab>
+  <Tab label="bun" value="bun">
+
+```sh
+bunx --no-install verso doctor
+```
+
+  </Tab>
+</Tabs>
+
 `doctor` 会检查配置加载、package 发现、当前版本、共享的 package 和 Cargo 版本、changelog 父目录，
-以及具名分支的 upstream。任一检查失败都会返回非零退出状态。自动化可以读取同一组检查的 JSON：
+以及具名分支的 upstream。任一检查失败都会返回非零退出状态。后续示例用 `verso` 作为同一本地 executable
+的简写。自动化可以读取同一组检查的 JSON：
 
 ```sh
 verso doctor --json

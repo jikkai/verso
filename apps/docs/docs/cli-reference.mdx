@@ -17,7 +17,7 @@ after a subcommand.
 | `--config <PATH>`      | `verso.toml` | Use another group config; its parent becomes the release root        |
 | `--group <NAME>`       | -            | Select `verso.NAME.toml`; conflicts with `--config`                  |
 | `--yes`                | `false`      | Accept release or bump confirmations; does not select a version      |
-| `-V`, `--tool-version` | -            | Print the installed wrapper / native CLI version and exit            |
+| `-V`, `--tool-version` | -            | Print the installed Verso version and exit                           |
 | `--help`               | -            | Print command help                                                   |
 
 ```sh
@@ -42,6 +42,11 @@ For example, selecting beta + minor from `1.3.0-beta.0` yields `1.3.0-beta.1`.
 An exact target may be equal to or lower than the current version. That requires a separate
 default-no confirmation unless `--yes` is set. When stdin or stdout is not a terminal, the same
 choices use plain-text prompts.
+
+<Callout variant="warning" title="--yes also accepts a non-increasing version">
+  Automation must choose and validate its target version before invoking Verso. `--yes` accepts the
+  additional confirmation for a target equal to or lower than the current version.
+</Callout>
 
 ### Exact dry-run plans
 
@@ -127,31 +132,20 @@ verso [--config <PATH> | --group <NAME>] abort [--force]
 count. With `--json`, it also reports `canAbort`, `canForceAbort`, `pushStarted`, and `pushFailed`;
 when no transaction exists, it returns `{ "active": false }`.
 
-`resume` verifies the persisted plan against files, `HEAD`, and the release tag, skips completed
-hooks and confirmations, then continues from the recorded stage. If a hook was interrupted, inspect
-its side effects and explicitly choose `--retry-hook` to run it again or `--skip-hook` to mark it
-complete.
+`resume` verifies the persisted plan, skips completed work, and continues from the recorded stage.
+If a hook was interrupted, inspect its side effects and choose exactly one of `--retry-hook` or
+`--skip-hook`.
 
-Starting another mutating release or bump while a transaction is active first prompts to resume or
-abort the recorded transaction. The requested new release is not started in the same invocation.
+`abort` rolls back only state still owned by the transaction and refuses to overwrite later edits.
+After manual recovery, `abort --force` discards only the journal and leaves files and refs unchanged.
 
-`abort` removes only the expected tag and release commit, unstages Verso paths, restores exact
-pre-plan file contents, and refuses to overwrite later edits or an unexpected `HEAD`. A transaction
-at the `pushed` stage cannot be aborted; use `resume` to finish `after_push` and clear it. Once a push
-has started, abort is disabled because the remote result may be unknown. `resume` finishes when the
-exact tag object and peeled tag match the persisted release and the pinned remote branch equals or
-contains that commit. It retries when the tag is absent and the branch is not the release commit,
-and stops for manual recovery if the refs are partial or mismatched. The push URL recorded when the
-transaction starts remains the destination after resume.
+<Callout variant="danger" title="After push starts, resume only">
+  A remote result may be unknown, so Verso disables abort as soon as push starts. Inspect the
+  remote, then use `resume`; do not use `abort --force` as a rollback.
+</Callout>
 
-After manually inspecting or recovering an exceptional state, `abort --force` discards the active
-journal without parsing its plan or changing local files, commits, tags, or remote refs. It is an
-unlock operation, not an automatic rollback.
-
-After the release commit exists, abort also checks that pinned destination before rewinding local
-state. A target tag not owned by the transaction or a branch already containing the release commit
-must be resolved manually. After push starts, local `HEAD` may advance without changing the pinned
-commit and tag that resume verifies or pushes.
+See [Release workflow](/release-workflow/) for the exact stage model, reconciliation rules, and
+failure matrix.
 
 Verso exits with 0 on success and 1 for validation, cancellation, hook, Git, transaction, or launch
-errors. The npm wrapper forwards native exit codes and signals.
+errors.

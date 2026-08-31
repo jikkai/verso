@@ -16,7 +16,7 @@ description: Verso CLI 的命令语法、发布组、准确计划、恢复方式
 | `--config <PATH>`      | `verso.toml` | 使用其他组配置；其父目录成为发布根目录                         |
 | `--group <NAME>`       | -            | 选择 `verso.NAME.toml`；与 `--config` 互斥                     |
 | `--yes`                | `false`      | 接受发布或 bump 确认；不会选择版本                             |
-| `-V`、`--tool-version` | -            | 输出已安装 wrapper / 原生 CLI 版本并退出                       |
+| `-V`、`--tool-version` | -            | 输出已安装的 Verso 版本并退出                                  |
 | `--help`               | -            | 输出命令帮助                                                   |
 
 ```sh
@@ -40,6 +40,10 @@ channel 会递增数字后缀；切换 channel 或 base 会从 `.0` 开始。例
 
 准确目标版本可以等于或低于当前版本，但会额外显示一个默认否的确认；`--yes` 会跳过这个确认。stdin 或
 stdout 不是终端时，会使用同一套纯文本提示。
+
+<Callout variant="warning" title="--yes 也会接受不递增的版本">
+  自动化必须先自行选择并校验目标版本。目标版本等于或低于当前版本时，`--yes` 也会接受对应的额外确认。
+</Callout>
 
 ### 准确的 dry-run 计划
 
@@ -117,25 +121,17 @@ verso [--config <PATH> | --group <NAME>] abort [--force]
 `status` 会显示当前操作、发布组、阶段、版本对、中断的 hook 和修改文件数。使用 `--json` 时还会输出
 `canAbort`、`canForceAbort`、`pushStarted` 和 `pushFailed`；没有事务时返回 `{ "active": false }`。
 
-`resume` 会用持久化计划校验文件、`HEAD` 与 release tag，跳过已完成的 hook 和确认，再从记录阶段继续。
-如果 hook 执行时中断，应检查其副作用，并明确使用 `--retry-hook` 再次运行，或用 `--skip-hook` 标记为完成。
+`resume` 会检查持久化计划、跳过已完成的工作，再从记录阶段继续。如果 hook 执行时中断，应先检查其
+副作用，再从 `--retry-hook` 和 `--skip-hook` 中明确选择一个。
 
-有事务时再次执行会修改仓库的 release 或 bump，Verso 会先提示 resume 或 abort 已记录的事务；同一次
-调用不会继续启动用户刚请求的新发布。
+`abort` 只回滚仍由事务拥有的状态，并拒绝覆盖后来修改。手工恢复后，`abort --force` 只丢弃日志，保留
+文件和 ref 原样。
 
-`abort` 只删除预期的 tag 和 release commit，取消 Verso 路径的暂存，恢复计划前的准确文件内容，并拒绝
-覆盖后来编辑或意外的 `HEAD`。事务进入 `pushed` 阶段后不能 abort；应使用 `resume` 完成 `after_push`
-并清除事务。push 一旦开始，远端结果可能未知，因此不能 abort。准确的 tag object 与 peeled tag 匹配且
-固定的远端 branch 等于或包含 release commit 时，`resume` 会完成事务；tag 缺失且 branch 不是 release
-commit 时会重试；ref 不完整或不匹配时会停止并要求手工恢复。事务开始时记录的 push URL 在 resume 后
-仍是发布目标。
+<Callout variant="danger" title="Push 开始后只能 resume">
+  远端结果可能未知，因此 Verso 会在 push 开始后禁用 abort。请先检查远端，再使用 `resume`；不要把
+  `abort --force` 当作回滚命令。
+</Callout>
 
-手工检查或恢复异常状态后，`abort --force` 会在不解析计划的情况下丢弃事务日志，不修改本地文件、
-commit、tag 或远端 ref。它是解锁操作，不是自动回滚。
+准确阶段、校准规则和失败矩阵见[发布流程](/zh-CN/release-workflow/)。
 
-release commit 创建后，abort 会先检查这个固定目标，再回退本地状态。发现不属于事务的目标 tag，或远端
-branch 已包含 release commit 时，必须手工处理。push 开始后，本地 `HEAD` 可以继续前进；resume 校验或
-推送的仍是固定的 commit 与 tag。
-
-Verso 成功时以 0 退出；校验、取消、hook、Git、事务或启动错误以 1 退出。npm wrapper 会转发原生进程的
-退出码和信号。
+Verso 成功时以 0 退出；校验、取消、hook、Git、事务或启动错误以 1 退出。
