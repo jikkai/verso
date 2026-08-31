@@ -14,9 +14,7 @@ to the release root, use forward slashes, and cannot contain parent-directory (`
 
 ## Default configuration
 
-<CodeBlock filename="verso.toml">
-
-```toml
+```toml filename="verso.toml"
 [version]
 root_package = "package.json"
 require_consistent_versions = true
@@ -49,8 +47,6 @@ push = "atomic"
 # before_push = "pnpm check"
 # after_push = "node scripts/notify.mjs"
 ```
-
-</CodeBlock>
 
 Every table and key is optional. When the default config path is absent and a root package manifest
 exists, Verso uses these values without creating a file. An explicitly supplied missing config is

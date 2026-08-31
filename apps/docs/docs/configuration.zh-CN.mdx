@@ -13,9 +13,7 @@ Verso 默认读取当前目录的 `verso.toml`；也可以传入 `--config <PATH
 
 ## 默认配置
 
-<CodeBlock filename="verso.toml">
-
-```toml
+```toml filename="verso.toml"
 [version]
 root_package = "package.json"
 require_consistent_versions = true
@@ -48,8 +46,6 @@ push = "atomic"
 # before_push = "pnpm check"
 # after_push = "node scripts/notify.mjs"
 ```
-
-</CodeBlock>
 
 所有 table 和配置项都是可选的。默认配置路径不存在、但根 package manifest 存在时，Verso 会直接采用这些
 值而不创建文件。显式指定但不存在的配置文件始终是错误。
