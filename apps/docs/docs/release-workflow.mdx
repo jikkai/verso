@@ -76,6 +76,11 @@ matches the plan's after content. It refuses an unexpected `HEAD`, moved tag, or
 rather than overwriting unrelated work. Once the release commit exists, abort also checks the pinned
 remote and refuses an unowned target tag or a branch that already contains the release commit.
 
+Before push starts, a complete manual rollback is recognized: `HEAD` and all planned files must
+match their original state, the release tag must be absent, and the worktree and index must be clean.
+In that case, `abort` only clears the journal and needs no remote connection. A clean worktree alone
+does not prove that the release was rolled back.
+
 <Callout variant="danger" title="Push is the recovery boundary">
   Once push starts, abort is disabled because the remote outcome may be unknown. `verso resume`
   verifies the persisted tag and commit against the pinned remote, then finishes or retries the same

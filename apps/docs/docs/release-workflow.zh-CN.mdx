@@ -47,6 +47,9 @@ planned
 
 ## Status、resume 与 abort
 
+Push 开始前，如果手工回滚已将 `HEAD` 和全部计划文件恢复到发布前状态，删除了发布 tag，且工作区和
+索引都 clean，`abort` 会直接清除日志，无需连接远端。仅有工作区 clean 并不足以证明已撤回发布。
+
 ```sh
 verso status [--json]
 verso resume [--retry-hook | --skip-hook]

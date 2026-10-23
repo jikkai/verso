@@ -28,8 +28,9 @@ package manager 或项目已有任务调用本地 executable。
 
 ## 判断是否需要配置文件
 
-单包项目只需要根目录存在 `package.json`、`package.json5`、`package.yaml` 或 `package.yml`。没有显式传入
-`--config` 时，Verso 会采用内置的单包默认值。
+单包项目只需要根目录存在 `package.json`、`package.json5`、`package.yaml`、`package.yml` 或
+`oh-package.json5`。鸿蒙应用使用 `AppScope/app.json5`，并从 `build-profile.json5` 发现模块。
+没有显式传入 `--config` 时，Verso 会采用内置默认值。
 
 Workspace 项目可以生成 `verso.toml`：
 

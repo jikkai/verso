@@ -59,7 +59,8 @@ always an error.
 
 ## Workspace discovery
 
-When `workspaces.patterns` is empty, Verso first reads `packages` from `pnpm-workspace.yaml`, then the
+For HarmonyOS apps, empty `workspaces.patterns` uses module `srcPath` entries from `build-profile.json5`.
+For other projects, Verso first reads `packages` from `pnpm-workspace.yaml`, then the
 root manifest's `workspaces` field. If neither defines patterns, only the root package is used.
 
 | Key             | Default | Behavior                                                                                         |
@@ -76,8 +77,17 @@ Set `include_root = false` when the root manifest only describes the workspace a
 the release group's version.
 
 Each matched directory contributes the first existing manifest in this order:
-`package.json`, `package.json5`, `package.yaml`, `package.yml`. Verso changes only the top-level
-`version` scalar and preserves the rest of the file's formatting.
+`AppScope/app.json5`, `oh-package.json5`, `package.json`, `package.json5`, `package.yaml`, `package.yml`.
+Package manifests change only their top-level `version` scalar, preserving formatting and comments.
+
+HarmonyOS apps use `app.versionName` as the current version. Verso changes it to the target stable
+`major.minor.patch` version and increments `app.versionCode` by one when the version changes. It
+rejects invalid or overflowing version codes and prerelease/build suffixes. The supported code range
+is 0–2147483647, following the [app configuration specification](https://github.com/openharmony/docs/blob/master/en/application-dev/quick-start/app-configuration-file.md).
+Root `oh-package.json5` files with a `version` field join the release; dependency-only root manifests
+stay unchanged. Module manifests must have valid SemVer versions. A scripts-only root `package.json`
+is ignored when `AppScope/app.json5` exists. HAP compilation, signing, and AppGallery publication are
+outside Verso's release workflow.
 
 ## Version sources
 
@@ -87,8 +97,8 @@ Each matched directory contributes the first existing manifest in this order:
 | `require_consistent_versions` | `true`         | Must remain `true`; rejects members whose versions differ so the group has one current version  |
 | `cargo_manifest_paths`        | `[]`           | Updates each manifest's `[package].version` and its nearest ancestor `Cargo.lock`, when present |
 
-When the default `root_package` does not exist, Verso may resolve another supported manifest in the
-release root. A custom `root_package` is used exactly as configured.
+The default `root_package = "package.json"` uses the discovery order above, giving HarmonyOS app
+metadata priority over an auxiliary npm manifest. A custom `root_package` is used exactly as configured.
 
 ## Release groups
 

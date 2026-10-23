@@ -29,8 +29,9 @@ task.
 
 ## Decide whether a config is needed
 
-For a single package, a root `package.json`, `package.json5`, `package.yaml`, or `package.yml` is
-enough. With no explicit `--config`, Verso uses built-in single-package defaults.
+For a single package, a root `package.json`, `package.json5`, `package.yaml`, `package.yml`, or
+`oh-package.json5` is enough. HarmonyOS apps use `AppScope/app.json5` and discover modules from
+`build-profile.json5`. With no explicit `--config`, Verso uses built-in defaults.
 
 For a workspace, generate `verso.toml`:
 

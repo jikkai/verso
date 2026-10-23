@@ -5,6 +5,7 @@ use crate::{
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use noyalib::borrowed::{from_str_borrowed, BorrowedValue};
+use serde::Deserialize;
 use std::{
     collections::BTreeSet,
     fs,
@@ -34,6 +35,22 @@ pub fn discover_packages(root: &Path, config: &Config) -> Result<Vec<PackageFile
     if config.workspaces.include_root {
         if let Some(root_package) = &root_package {
             package_paths.push(root_package.clone());
+            if root_package.ends_with("AppScope/app.json5") {
+                let oh_package = root.join("oh-package.json5");
+                validate_release_path(root, &oh_package)?;
+                if oh_package.exists() {
+                    let contents = fs::read_to_string(&oh_package).map_err(|error| {
+                        format!("failed to read {}: {error}", oh_package.display())
+                    })?;
+                    let value: serde_json::Map<String, serde_json::Value> =
+                        json5::from_str(&contents).map_err(|error| {
+                            format!("failed to parse {} as JSON5: {error}", oh_package.display())
+                        })?;
+                    if value.contains_key("version") {
+                        package_paths.push(oh_package);
+                    }
+                }
+            }
         }
     }
 
@@ -93,12 +110,12 @@ pub fn discover_packages(root: &Path, config: &Config) -> Result<Vec<PackageFile
 }
 
 fn resolve_root_package_manifest(root: &Path, config: &Config) -> Option<PathBuf> {
+    if config.version.root_package == "package.json" {
+        return resolve_package_manifest(root);
+    }
     let configured = root.join(&config.version.root_package);
     if configured.exists() {
         return Some(configured);
-    }
-    if config.version.root_package == "package.json" {
-        return resolve_package_manifest(root);
     }
     None
 }
@@ -114,16 +131,53 @@ fn effective_workspace_patterns(root: &Path, config: &Config) -> Result<Vec<Stri
     if !config.workspaces.patterns.is_empty() {
         return Ok(config.workspaces.patterns.clone());
     }
+    let root_manifest = resolve_root_package_manifest(root, config);
+    if root_manifest
+        .as_ref()
+        .is_some_and(|path| path.ends_with("AppScope/app.json5"))
+    {
+        return read_harmony_module_paths(root);
+    }
     if let Some(patterns) = read_pnpm_workspace_patterns(root)? {
         return Ok(patterns);
     }
-    let Some(root_manifest) = resolve_root_package_manifest(root, config) else {
+    let Some(root_manifest) = root_manifest else {
         return Ok(Vec::new());
     };
     validate_release_path(root, &root_manifest)?;
     Ok(read_package_manifest(&root_manifest)?
         .workspaces
         .unwrap_or_default())
+}
+
+fn read_harmony_module_paths(root: &Path) -> Result<Vec<String>, String> {
+    #[derive(Deserialize)]
+    struct BuildProfile {
+        modules: Vec<Module>,
+    }
+    #[derive(Deserialize)]
+    struct Module {
+        #[serde(rename = "srcPath")]
+        src_path: String,
+    }
+    let path = root.join("build-profile.json5");
+    validate_release_path(root, &path)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let contents = fs::read_to_string(&path)
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    let profile: BuildProfile = json5::from_str(&contents)
+        .map_err(|error| format!("failed to parse {} as JSON5: {error}", path.display()))?;
+    profile
+        .modules
+        .into_iter()
+        .map(|module| {
+            let relative = module.src_path.trim_start_matches("./");
+            validate_release_path(root, &root.join(relative))?;
+            Ok(globset::escape(relative))
+        })
+        .collect()
 }
 
 fn read_pnpm_workspace_patterns(root: &Path) -> Result<Option<Vec<String>>, String> {
@@ -464,6 +518,58 @@ mod tests {
 
         assert_package_dirs(&packages, &[temp.path()]);
         verify_consistent_versions(&packages)?;
+        Ok(())
+    }
+
+    #[test]
+    fn harmony_module_discovery_uses_literal_paths_inside_the_release_root(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let temp = TempDir::new()?;
+        fs::create_dir_all(temp.path().join("AppScope"))?;
+        fs::write(
+            temp.path().join("AppScope/app.json5"),
+            "{ app: { versionName: '1.0.0', versionCode: 1 } }",
+        )?;
+        fs::create_dir_all(temp.path().join("features/editor[1]"))?;
+        fs::write(
+            temp.path().join("features/editor[1]/oh-package.json5"),
+            "{ name: 'editor', version: '1.0.0' }",
+        )?;
+        write_package(&temp.path().join("features/editor1"), "other", "2.0.0")?;
+        let profile = temp.path().join("build-profile.json5");
+        fs::write(
+            &profile,
+            "{ modules: [{ srcPath: './features/editor[1]' }] }",
+        )?;
+        let config = test_config(Vec::new(), true);
+        let packages = discover_packages(temp.path(), &config)?;
+        assert_package_dirs(
+            &packages,
+            &[
+                &temp.path().join("AppScope"),
+                &temp.path().join("features/editor[1]"),
+            ],
+        );
+        verify_consistent_versions(&packages)?;
+
+        for path in ["../outside", "/outside", ".", ""] {
+            fs::write(
+                &profile,
+                serde_json::json!({"modules": [{"srcPath": path}]}).to_string(),
+            )?;
+            assert!(discover_packages(temp.path(), &config)
+                .expect_err("unsafe module path must fail")
+                .contains("unsafe path"));
+        }
+        #[cfg(unix)]
+        {
+            let external = TempDir::new()?;
+            std::os::unix::fs::symlink(external.path(), temp.path().join("linked"))?;
+            fs::write(&profile, "{ modules: [{ srcPath: './linked' }] }")?;
+            assert!(discover_packages(temp.path(), &config)
+                .expect_err("linked module path must fail")
+                .contains("unsafe path"));
+        }
         Ok(())
     }
 

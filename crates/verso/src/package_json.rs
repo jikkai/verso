@@ -5,7 +5,9 @@ use std::fs;
 use std::ops::Range;
 use std::path::Path;
 
-const PACKAGE_MANIFEST_NAMES: [&str; 4] = [
+const PACKAGE_MANIFEST_NAMES: [&str; 6] = [
+    "AppScope/app.json5",
+    "oh-package.json5",
     "package.json",
     "package.json5",
     "package.yaml",
@@ -28,6 +30,7 @@ pub struct PackageManifest {
 enum ManifestFormat {
     Json,
     Json5,
+    HarmonyApp,
     Yaml,
 }
 
@@ -60,7 +63,7 @@ pub fn read_package_manifest_from_str(
                 .map_err(|error| format!("failed to parse {} as JSON: {error}", path.display()))?;
             package_manifest_from_json_value(path, &value)
         }
-        ManifestFormat::Json5 => {
+        ManifestFormat::Json5 | ManifestFormat::HarmonyApp => {
             let value: JsonValue = json5::from_str(contents)
                 .map_err(|error| format!("failed to parse {} as JSON5: {error}", path.display()))?;
             package_manifest_from_json_value(path, &value)
@@ -86,8 +89,9 @@ pub fn replace_manifest_version_preserving_style(
 
     let range = match manifest_format(path) {
         ManifestFormat::Json | ManifestFormat::Json5 => {
-            find_top_level_json_version_value_range(contents)?
+            find_json_value_range(contents, "version")?.map(|range| range.start + 1..range.end - 1)
         }
+        ManifestFormat::HarmonyApp => return replace_harmony_app_version(contents, next),
         ManifestFormat::Yaml => find_top_level_yaml_version_value_range(contents)?,
     }
     .ok_or_else(|| "failed to locate top-level package version string".to_owned())?;
@@ -100,8 +104,11 @@ pub fn replace_manifest_version_preserving_style(
 }
 
 fn manifest_format(path: &Path) -> ManifestFormat {
+    if path.ends_with("AppScope/app.json5") {
+        return ManifestFormat::HarmonyApp;
+    }
     match path.file_name().and_then(|name| name.to_str()) {
-        Some("package.json5") => ManifestFormat::Json5,
+        Some("package.json5" | "oh-package.json5") => ManifestFormat::Json5,
         Some("package.yaml" | "package.yml") => ManifestFormat::Yaml,
         _ => ManifestFormat::Json,
     }
@@ -111,20 +118,39 @@ fn package_manifest_from_json_value(
     path: &Path,
     value: &JsonValue,
 ) -> Result<PackageManifest, String> {
+    let (value, name_key, version_key) = if manifest_format(path) == ManifestFormat::HarmonyApp {
+        let app = &value["app"];
+        if !app["versionCode"]
+            .as_u64()
+            .is_some_and(|code| code <= i32::MAX as u64)
+        {
+            return Err(format!(
+                "{} app.versionCode must be an integer between 0 and 2147483647",
+                path.display()
+            ));
+        }
+        (app, "bundleName", "versionName")
+    } else {
+        (value, "name", "version")
+    };
     let object = value
         .as_object()
         .ok_or_else(|| format!("{} must contain a package manifest object", path.display()))?;
     let name = object
-        .get("name")
+        .get(name_key)
         .and_then(JsonValue::as_str)
         .map(ToOwned::to_owned);
     let context = package_context(path, name.as_deref());
-    let version_value = object
-        .get("version")
-        .ok_or_else(|| missing_version_error(&context))?;
+    let version_value = object.get(version_key).ok_or_else(|| {
+        if version_key == "version" {
+            missing_version_error(&context)
+        } else {
+            format!("{context} is missing required string field \"{version_key}\"")
+        }
+    })?;
     let version_string = version_value
         .as_str()
-        .ok_or_else(|| format!("{context} field \"version\" must be a string"))?;
+        .ok_or_else(|| format!("{context} field \"{version_key}\" must be a string"))?;
     let version = Version::parse(version_string).map_err(|error| {
         format!("{context} has invalid semver version \"{version_string}\": {error}")
     })?;
@@ -218,10 +244,48 @@ fn missing_version_error(context: &str) -> String {
     )
 }
 
-fn find_top_level_json_version_value_range(contents: &str) -> Result<Option<Range<usize>>, String> {
+fn replace_harmony_app_version(contents: &str, next: &Version) -> Result<String, String> {
+    if !next.pre.is_empty() || !next.build.is_empty() {
+        return Err(
+            "HarmonyOS app.versionName requires a stable major.minor.patch version".to_owned(),
+        );
+    }
+    let app_range = find_json_value_range(contents, "app")?
+        .ok_or_else(|| "failed to locate HarmonyOS app object".to_owned())?;
+    let app = &contents[app_range.clone()];
+    let name_range = find_json_value_range(app, "versionName")?
+        .ok_or_else(|| "failed to locate app.versionName".to_owned())?;
+    let code_range = find_json_value_range(app, "versionCode")?
+        .ok_or_else(|| "failed to locate app.versionCode".to_owned())?;
+    let current: String = json5::from_str(&app[name_range.clone()])
+        .map_err(|error| format!("invalid app.versionName: {error}"))?;
+    if current == next.to_string() {
+        return Ok(contents.to_owned());
+    }
+    let code: u32 = json5::from_str(&app[code_range.clone()])
+        .map_err(|error| format!("invalid app.versionCode: {error}"))?;
+    if code >= i32::MAX as u32 {
+        return Err("app.versionCode cannot be incremented beyond 2147483647".to_owned());
+    }
+    let mut replacements = [
+        (name_range.start + 1..name_range.end - 1, next.to_string()),
+        (code_range, (code + 1).to_string()),
+    ];
+    replacements.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let mut updated = contents.to_owned();
+    for (range, replacement) in replacements {
+        updated.replace_range(
+            app_range.start + range.start..app_range.start + range.end,
+            &replacement,
+        );
+    }
+    Ok(updated)
+}
+
+fn find_json_value_range(contents: &str, field: &str) -> Result<Option<Range<usize>>, String> {
     let bytes = contents.as_bytes();
     let mut cursor = skip_json_whitespace_and_comments(bytes, 0);
-    let mut version_range = None;
+    let mut value_range = None;
 
     if bytes.get(cursor) != Some(&b'{') {
         return Ok(None);
@@ -231,7 +295,7 @@ fn find_top_level_json_version_value_range(contents: &str) -> Result<Option<Rang
     loop {
         cursor = skip_json_whitespace_and_comments(bytes, cursor);
         match bytes.get(cursor) {
-            Some(b'}') => return Ok(version_range),
+            Some(b'}') => return Ok(value_range),
             Some(b'"' | b'\'') | Some(b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'$') => {}
             _ => return Ok(None),
         }
@@ -245,29 +309,23 @@ fn find_top_level_json_version_value_range(contents: &str) -> Result<Option<Rang
         }
         cursor = skip_json_whitespace_and_comments(bytes, cursor + 1);
 
-        if key == "version" {
-            if !matches!(bytes.get(cursor), Some(b'"' | b'\'')) {
-                return Ok(None);
+        let Some(value_end) = skip_json_value(bytes, cursor) else {
+            return Ok(None);
+        };
+        if key == field {
+            if value_range.is_some() {
+                return Err(format!(
+                    "duplicate top-level {field} keys are not supported"
+                ));
             }
-            let Some(value_end) = find_json_string_end(bytes, cursor) else {
-                return Ok(None);
-            };
-            if version_range.is_some() {
-                return Err("duplicate top-level version keys are not supported".to_owned());
-            }
-            version_range = Some((cursor + 1)..value_end);
-            cursor = value_end + 1;
-        } else {
-            let Some(next_cursor) = skip_json_value(bytes, cursor) else {
-                return Ok(None);
-            };
-            cursor = next_cursor;
+            value_range = Some(cursor..value_end);
         }
+        cursor = value_end;
 
         cursor = skip_json_whitespace_and_comments(bytes, cursor);
         match bytes.get(cursor) {
             Some(b',') => cursor += 1,
-            Some(b'}') => return Ok(version_range),
+            Some(b'}') => return Ok(value_range),
             _ => return Ok(None),
         }
     }
@@ -405,7 +463,7 @@ fn skip_json_scalar(bytes: &[u8], start: usize) -> Option<usize> {
     let mut cursor = start;
     while let Some(byte) = bytes.get(cursor) {
         match byte {
-            b',' | b'}' | b']' | b' ' | b'\n' | b'\r' | b'\t' => break,
+            b',' | b'}' | b']' | b' ' | b'\n' | b'\r' | b'\t' | b'/' => break,
             _ => cursor += 1,
         }
     }
@@ -654,6 +712,76 @@ mod tests {
             "{\n  // release version\n  version: \"1.1.0\",\n}\n"
         );
         Ok(())
+    }
+
+    #[test]
+    fn updates_harmony_versions_without_changing_other_content() -> Result<(), String> {
+        for fields in [
+            "versionName: '1.2.3', versionCode: 99/* build */,",
+            "versionCode: 99/* build */, versionName: '1.2.3',",
+        ] {
+            let contents = format!("{{ app: {{ bundleName: 'me.example.app', {fields} nested: {{ versionName: '9.0.0', versionCode: 8 }} }}, }}\r\n");
+            let path = Path::new("AppScope/app.json5");
+            let package = read_package_from_str(path, &contents)?;
+            assert_eq!(package.name.as_deref(), Some("me.example.app"));
+            assert_eq!(package.version, Version::new(1, 2, 3));
+            let updated =
+                replace_manifest_version_preserving_style(path, &contents, &Version::new(1, 3, 0))?;
+            assert_eq!(
+                updated,
+                contents
+                    .replace("'1.2.3'", "'1.3.0'")
+                    .replace("99/*", "100/*")
+            );
+            assert_eq!(
+                replace_manifest_version_preserving_style(path, &updated, &Version::new(1, 3, 0))?,
+                updated
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_unsafe_harmony_version_updates() {
+        let path = Path::new("AppScope/app.json5");
+        for code in ["-1", "1.5", "2147483648", "\"1\"", "null"] {
+            let contents = format!("{{ app: {{ versionName: '1.0.0', versionCode: {code} }} }}");
+            assert!(replace_manifest_version_preserving_style(
+                path,
+                &contents,
+                &Version::new(1, 1, 0)
+            )
+            .expect_err("invalid version code must fail")
+            .contains("versionCode"));
+        }
+        let contents = "{ app: { versionName: '1.0.0', versionCode: 2147483647 } }";
+        assert!(
+            replace_manifest_version_preserving_style(path, contents, &Version::new(1, 1, 0))
+                .expect_err("overflow must fail")
+                .contains("cannot be incremented")
+        );
+        for version in ["1.1.0-beta.1", "1.1.0+build.1"] {
+            assert!(replace_manifest_version_preserving_style(
+                path,
+                contents,
+                &Version::parse(version).expect("valid semver")
+            )
+            .expect_err("unsupported app version must fail")
+            .contains("stable"));
+        }
+        for contents in [
+            "{ app: { versionName: '1.0.0', versionName: '1.0.0', versionCode: 1 } }",
+            "{ app: { versionName: '1.0.0', versionCode: 1, versionCode: 2 } }",
+            "{ app: {}, app: { versionName: '1.0.0', versionCode: 1 } }",
+        ] {
+            assert!(replace_manifest_version_preserving_style(
+                path,
+                contents,
+                &Version::new(1, 1, 0)
+            )
+            .expect_err("ambiguous version fields must fail")
+            .contains("duplicate"));
+        }
     }
 
     #[test]

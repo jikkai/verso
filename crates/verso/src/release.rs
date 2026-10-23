@@ -860,6 +860,16 @@ fn abort_transaction(active: &mut ReleaseTransaction, verify_push: bool) -> Resu
         );
     }
     let current_head = git::current_head(&root)?;
+    if current_head == active.before_head
+        && git::is_worktree_clean(&root)?
+        && transaction::files_state(active)? == FilesState::Original
+        && match &active.plan.tag_name {
+            Some(tag_name) => !git::tag_exists(&root, tag_name)?,
+            None => true,
+        }
+    {
+        return transaction::clear(&root);
+    }
     if active.release_head.is_none()
         && active.plan.mode == PlanMode::Release
         && current_head != active.before_head

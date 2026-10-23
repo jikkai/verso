@@ -1,7 +1,6 @@
-pub use crate::plan::{PlannedHook, ReleasePlan};
 use crate::{
     diagnostic::render_warning,
-    plan::{PlanMode, PlannedFileChange},
+    plan::{PlanMode, PlannedFileChange, ReleasePlan},
 };
 use anstyle::{AnsiColor, Style};
 use serde_json::json;
@@ -479,6 +478,7 @@ fn reset() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plan::PlannedHook;
     use semver::Version;
     use std::path::{Path, PathBuf};
     use tempfile::TempDir;

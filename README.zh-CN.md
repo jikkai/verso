@@ -8,7 +8,7 @@
 [![npm version](https://img.shields.io/npm/v/@amamo/verso.svg)](https://www.npmjs.com/package/@amamo/verso)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Verso 把每个已配置的 JavaScript workspace 发布组作为一个版本发布。它会发现 package manifest，按需
+Verso 支持 JavaScript workspace 和鸿蒙应用，将每个发布组作为一个版本发布。它会发现 package manifest，按需
 更新配置的 Cargo package 和 Conventional Commit changelog，创建 release commit 与 annotated tag，
 再原子推送当前 upstream 分支和这个准确的 tag。
 
@@ -20,6 +20,7 @@ Verso 刻意在这里结束。Registry 发布、GitHub Release、二进制构建
 - Git、具名分支和已配置的 upstream。
 - 受支持的平台：macOS arm64/x64、Linux GNU arm64/x64 或 Windows x64。
 - 包含有效 SemVer 的 `package.json`、`package.json5`、`package.yaml` 或 `package.yml`。
+  鸿蒙项目也支持 `AppScope/app.json5` 或 `oh-package.json5`。
 
 ## 快速开始
 
@@ -58,6 +59,11 @@ verso --dry-run --version 1.4.0
 
 Dry-run 会执行与真实运行相同的转换计算，并输出每个修改文件实际的 before/after diff，但不会写入。
 
+鸿蒙应用通过 `AppScope/app.json5` 自动识别，即使根目录有仅用于运行脚本的 `package.json` 也能使用。
+Verso 更新 `app.versionName`，在版本变化时将 `app.versionCode` 加 1，并同步根包和模块中带版本字段的
+`oh-package.json5`。未配置 workspace 模式时，模块来自 `build-profile.json5`。
+应用版本须采用稳定版 `major.minor.patch` SemVer；HAP 编译、签名和应用市场上传仍交给 CI。
+
 计划无误后，使用交互模式，或为自动化提供准确版本：
 
 ```sh
@@ -94,6 +100,8 @@ commit、tag 或 push。
 - 真正发布默认要求工作区干净。宽松模式仍要求 index 和 release 文件干净。
 - `verso status`、`verso resume` 和 `verso abort` 可以检查、继续或安全回滚中断的事务。Push 一旦开始，
   abort 就会被禁用，恢复只能通过 `resume` 继续。
+  Push 开始前，若手工回滚已恢复原始 `HEAD` 和文件、删除发布 tag，且工作区 clean，`abort` 会直接清除
+  日志，无需连接远端。
 
 完整状态矩阵见[发布流程](https://jikkai.github.io/verso/zh-CN/release-workflow/)。
 

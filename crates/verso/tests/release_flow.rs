@@ -53,6 +53,112 @@ include_root = true
 }
 
 #[test]
+fn harmony_app_release_discovers_versions_preserves_scripts_and_rolls_back(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for root_has_version in [false, true] {
+        let repo = TempDir::new()?;
+        init_repo(repo.path())?;
+        let app =
+            "{ app: { bundleName: 'me.example.app', versionCode: 10000, versionName: '0.1.0' } }\n";
+        let scripts =
+            "{\"name\":\"app-scripts\",\"private\":true,\"scripts\":{\"test\":\"node --test\"}}\n";
+        let root_package = if root_has_version {
+            "{ modelVersion: '6.0.0', version: '0.1.0', dependencies: {} }\n"
+        } else {
+            "{ modelVersion: '26.0.0', dependencies: {} }\n"
+        };
+        let module = "{ name: 'entry', version: '0.1.0', dependencies: {} }\n";
+        write_file(&repo.path().join("AppScope/app.json5"), app)?;
+        write_file(&repo.path().join("package.json"), scripts)?;
+        write_file(&repo.path().join("oh-package.json5"), root_package)?;
+        write_file(&repo.path().join("entry/oh-package.json5"), module)?;
+        write_file(
+            &repo.path().join("build-profile.json5"),
+            "{ modules: [{ name: 'entry', srcPath: './entry' }] }\n",
+        )?;
+        git(repo.path(), &["add", "."])?;
+        git(repo.path(), &["commit", "-m", "feat: add HarmonyOS app"])?;
+        let before_head = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+        let remote = repo.path().join(".git/remote.git");
+        git(
+            repo.path(),
+            &["init", "--bare", remote.to_str().ok_or("non-UTF-8 path")?],
+        )?;
+        git(
+            repo.path(),
+            &[
+                "remote",
+                "add",
+                "origin",
+                remote.to_str().ok_or("non-UTF-8 path")?,
+            ],
+        )?;
+        git(repo.path(), &["push", "-u", "origin", "HEAD"])?;
+
+        let output = Command::cargo_bin("verso")?
+            .current_dir(repo.path())
+            .args(["--dry-run", "--json", "--version", "0.2.0"])
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let plan: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        assert_eq!(plan["currentVersion"], "0.1.0");
+        assert_eq!(
+            plan["fileChanges"]
+                .as_array()
+                .ok_or("missing changes")?
+                .len(),
+            if root_has_version { 3 } else { 2 }
+        );
+        assert_eq!(git_stdout(repo.path(), &["status", "--porcelain"])?, "");
+
+        Command::cargo_bin("verso")?
+            .current_dir(repo.path())
+            .args(["--version", "0.2.0"])
+            .write_stdin("y\ny\ny\nn\n")
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("release aborted"));
+        assert_eq!(
+            fs::read_to_string(repo.path().join("AppScope/app.json5"))?,
+            app.replace("10000", "10001").replace("0.1.0", "0.2.0")
+        );
+        assert_eq!(
+            fs::read_to_string(repo.path().join("entry/oh-package.json5"))?,
+            module.replace("0.1.0", "0.2.0")
+        );
+        assert_eq!(
+            fs::read_to_string(repo.path().join("oh-package.json5"))?,
+            root_package.replace("0.1.0", "0.2.0")
+        );
+        assert_eq!(
+            fs::read_to_string(repo.path().join("package.json"))?,
+            scripts
+        );
+
+        Command::cargo_bin("verso")?
+            .current_dir(repo.path())
+            .arg("abort")
+            .assert()
+            .success();
+        assert_eq!(
+            git_stdout(repo.path(), &["rev-parse", "HEAD"])?,
+            before_head
+        );
+        assert_eq!(git_stdout(repo.path(), &["status", "--porcelain"])?, "");
+        assert_eq!(
+            fs::read_to_string(repo.path().join("AppScope/app.json5"))?,
+            app
+        );
+        assert_eq!(git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?, "");
+    }
+    Ok(())
+}
+
+#[test]
 fn json_dry_run_contains_exact_file_changes_without_writing(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repo = TempDir::new()?;
@@ -1433,6 +1539,107 @@ fn a_new_release_prompts_to_resume_or_abort_the_active_transaction(
     );
     assert!(!repo.path().join(".git/verso/active.json").exists());
 
+    Ok(())
+}
+
+#[test]
+fn abort_clears_a_manually_restored_release_without_contacting_the_remote(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for interactive in [false, true] {
+        let repo = TempDir::new()?;
+        write_release_fixture(repo.path())?;
+        let before_head = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+
+        Command::cargo_bin("verso")?
+            .current_dir(repo.path())
+            .args(["--version", "0.2.0"])
+            .write_stdin("y\ny\ny\nn\n")
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("release aborted"));
+
+        if interactive {
+            Command::cargo_bin("verso")?
+                .current_dir(repo.path())
+                .arg("abort")
+                .assert()
+                .failure()
+                .stderr(predicate::str::contains(
+                    "cannot inspect the remote release refs",
+                ));
+        }
+        git(repo.path(), &["tag", "--delete", "v0.2.0"])?;
+        git(repo.path(), &["reset", "--hard", before_head.trim()])?;
+        assert_eq!(git_stdout(repo.path(), &["status", "--porcelain"])?, "");
+
+        let mut command = Command::cargo_bin("verso")?;
+        command.current_dir(repo.path());
+        if interactive {
+            command.args(["--version", "0.3.0"]).write_stdin("abort\n");
+        } else {
+            command.arg("abort");
+        }
+        command.assert().success();
+
+        Command::cargo_bin("verso")?
+            .current_dir(repo.path())
+            .args(["status", "--json"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("\"active\": false"));
+        assert_eq!(
+            git_stdout(repo.path(), &["rev-parse", "HEAD"])?,
+            before_head
+        );
+        assert_eq!(git_stdout(repo.path(), &["status", "--porcelain"])?, "");
+
+        Command::cargo_bin("verso")?
+            .current_dir(repo.path())
+            .args(["bump", "patch", "--yes"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Updated release files to 0.1.1."));
+    }
+    Ok(())
+}
+
+#[test]
+fn manual_local_rollback_after_push_starts_still_requires_force_abort(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = TempDir::new()?;
+    write_release_fixture(repo.path())?;
+    let before_head = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Local release commit and tag were created",
+        ));
+    git(repo.path(), &["tag", "--delete", "v0.2.0"])?;
+    git(repo.path(), &["reset", "--hard", before_head.trim()])?;
+
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("abort")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "cannot automatically abort after a push was started",
+        ));
+    assert!(repo.path().join(".git/verso/active.json").exists());
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["abort", "--force"])
+        .assert()
+        .success();
+    assert!(!repo.path().join(".git/verso/active.json").exists());
+    assert_eq!(
+        git_stdout(repo.path(), &["rev-parse", "HEAD"])?,
+        before_head
+    );
+    assert_eq!(git_stdout(repo.path(), &["status", "--porcelain"])?, "");
     Ok(())
 }
 

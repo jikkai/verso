@@ -8,7 +8,7 @@
 [![npm version](https://img.shields.io/npm/v/@amamo/verso.svg)](https://www.npmjs.com/package/@amamo/verso)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Verso releases each configured JavaScript workspace group as one version. It discovers package
+Verso releases JavaScript workspace groups and HarmonyOS apps as one version per group. It discovers package
 manifests, optionally updates configured Cargo packages and a Conventional Commit changelog, creates
 a release commit and annotated tag, then atomically pushes the current upstream branch and that exact
 tag.
@@ -22,6 +22,7 @@ belong in tag-triggered CI.
 - Git, a named branch, and a configured upstream.
 - A supported platform: macOS arm64/x64, Linux GNU arm64/x64, or Windows x64.
 - A `package.json`, `package.json5`, `package.yaml`, or `package.yml` with a valid SemVer version.
+  HarmonyOS projects can use `AppScope/app.json5` or `oh-package.json5` instead.
 
 ## Quick start
 
@@ -62,6 +63,12 @@ verso --dry-run --version 1.4.0
 Dry-run computes the same transformations as execution and prints the actual before/after diff for
 every changed file, without writing it.
 
+HarmonyOS apps are detected through `AppScope/app.json5`, even when a scripts-only `package.json`
+exists. Verso updates `app.versionName`, increments `app.versionCode` by one when the version changes,
+and synchronizes versioned root and module `oh-package.json5` files. Modules come from
+`build-profile.json5` unless workspace patterns are configured. App versions must use stable
+`major.minor.patch` SemVer. HAP builds, signing, and AppGallery uploads remain CI tasks.
+
 When the plan is correct, run interactively or provide an exact version for automation:
 
 ```sh
@@ -101,6 +108,8 @@ config + manifests + Git history
 - `verso status`, `verso resume`, and `verso abort` inspect, continue, or safely roll back an
   interrupted transaction. Once push starts, abort is disabled and recovery continues through
   `resume`.
+  Before push starts, if a manual rollback restored the original `HEAD` and file contents, removed
+  the release tag, and left a clean worktree, `abort` clears the journal without contacting the remote.
 
 See the [release workflow](https://jikkai.github.io/verso/release-workflow/) for the complete state
 matrix.

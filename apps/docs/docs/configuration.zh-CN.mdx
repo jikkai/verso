@@ -57,7 +57,8 @@ push = "atomic"
 
 ## Workspace 发现
 
-`workspaces.patterns` 为空时，Verso 会先读取 `pnpm-workspace.yaml` 的 `packages`，再读取根 manifest 的
+鸿蒙应用的 `workspaces.patterns` 为空时，使用 `build-profile.json5` 中模块的 `srcPath`。
+其他项目会先读取 `pnpm-workspace.yaml` 的 `packages`，再读取根 manifest 的
 `workspaces` 字段；两者都没有模式时，只使用根 package。
 
 | 配置项          | 默认值 | 行为                                                             |
@@ -72,8 +73,16 @@ push = "atomic"
 
 如果根 manifest 只描述 workspace，不应共用发布组版本，请设置 `include_root = false`。
 
-每个匹配目录按以下顺序选择第一个存在的 manifest：`package.json`、`package.json5`、`package.yaml`、
-`package.yml`。Verso 只替换顶层 `version` 标量，并保留文件其余部分的格式。
+每个匹配目录按以下顺序选择第一个存在的 manifest：`AppScope/app.json5`、`oh-package.json5`、
+`package.json`、`package.json5`、`package.yaml`、`package.yml`。
+包 manifest 只替换顶层 `version` 标量，并保留格式和注释。
+
+鸿蒙应用使用 `app.versionName` 作为当前版本，将其更新为目标稳定版 `major.minor.patch`，并在版本变化时
+将 `app.versionCode` 加 1。非法或溢出的版本码、预发布和 build 后缀会被拒绝。版本码范围为
+0–2147483647，遵循[应用配置规范](https://github.com/openharmony/docs/blob/master/en/application-dev/quick-start/app-configuration-file.md)。
+根 `oh-package.json5` 有 `version` 字段时会同步更新，仅声明依赖时保持原样。模块 manifest 必须有有效
+SemVer。存在 `AppScope/app.json5` 时，辅助运行脚本的根 `package.json` 不参与发布。
+HAP 编译、签名和应用市场上传不属于 Verso 的发布流程。
 
 ## 版本来源
 
@@ -83,7 +92,7 @@ push = "atomic"
 | `require_consistent_versions` | `true`         | 必须保持为 `true`；成员版本不一致时拒绝，以确保组只有一个当前版本           |
 | `cargo_manifest_paths`        | `[]`           | 更新每个 manifest 的 `[package].version`，并按需更新最近的上级 `Cargo.lock` |
 
-默认的 `root_package` 不存在时，Verso 可以解析发布根目录中的其他受支持 manifest；自定义
+默认的 `root_package = "package.json"` 使用上述发现顺序，优先选择鸿蒙应用元数据；自定义
 `root_package` 则会严格按配置路径使用。
 
 ## 发布组
