@@ -10,16 +10,16 @@
   },
   "dependencies": {
     "@amamo/doctrine": "0.5.0",
-    "@base-ui/react": "1.7.0",
-    "lucide-react": "1.37.0",
+    "@base-ui/react": "1.9.0",
+    "lucide-react": "1.61.0",
     "pagefind": "1.5.2",
-    "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "@types/node": "^26.4.0",
-    "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.5",
+    "@types/node": "^26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "typescript": "^7.0.2"
   }
 }
