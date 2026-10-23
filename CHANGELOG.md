@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.3.0](https://github.com/jikkai/verso/compare/v1.2.0...v1.3.0) (2026-10-23)
+
+### Bug Fixes
+
+* **docs:** use fenced code blocks ([dae31c8](https://github.com/jikkai/verso/commit/dae31c8971c0bce8e72efd95725a798acd637a9e))
+* **docs:** configure GitHub source root ([b9e34a8](https://github.com/jikkai/verso/commit/b9e34a80e7e6b3495c10d59d82cee942e9a750aa))
+
+### Features
+
+* **release:** support HarmonyOS apps and manual rollback recovery ([06d8648](https://github.com/jikkai/verso/commit/06d8648b7a237e6febd0d5c6303c4a47f0bd2cef))
+* **docs:** refresh branding and upgrade doctrine ([381ea8c](https://github.com/jikkai/verso/commit/381ea8c727861077d996a09ed0efdc6c379f2aeb))
+
+### Other Changes (chore)
+
+* **deps:** update workspace dependencies ([255e9a6](https://github.com/jikkai/verso/commit/255e9a66f6d6546a8fb1cc7e2e763757959b5e16))
+* update dependencies ([831bee0](https://github.com/jikkai/verso/commit/831bee01581fb7732143a399c4bc3f42e4be4018))
+* **deps:** update dependencies and tooling ([92422d9](https://github.com/jikkai/verso/commit/92422d9c3481599ceaa4d7d1f1758c3d5dbcfe5c))
+
+### Other Changes (docs)
+
+* update release guidance for current CLI behavior ([7ce2329](https://github.com/jikkai/verso/commit/7ce2329a00939fd82589330a30edf95c15144e7f))
+
 ## [1.2.0](https://github.com/jikkai/verso/compare/v1.1.0...v1.2.0) (2026-08-21)
 
 ### Features
