@@ -31,10 +31,10 @@
   },
   "devDependencies": {
     "@amamo/oxlint-config": "1.2.0",
-    "@types/node": "^26.6.5",
-    "oxfmt": "^0.74.0",
-    "oxlint": "^1.89.0",
-    "oxlint-tailwindcss": "^1.16.0",
+    "@types/node": "^26.6.6",
+    "oxfmt": "^0.79.0",
+    "oxlint": "^1.94.0",
+    "oxlint-tailwindcss": "^1.17.2",
     "simple-git-hooks": "^2.14.0",
     "typescript": "^7.0.2"
   },
@@ -44,5 +44,5 @@
   "engines": {
     "node": ">=22.18.0"
   },
-  "packageManager": "pnpm@12.1.0"
+  "packageManager": "pnpm@12.21.0"
 }

@@ -1,5 +1,5 @@
 use crate::git;
-use chrono::Local;
+use jiff::ZonedDateTime;
 use regex::Regex;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -180,7 +180,7 @@ fn render_angular_entry(
     repo_slug: Option<&str>,
 ) -> String {
     let mut output = String::new();
-    let date = Local::now().format("%Y-%m-%d");
+    let date = ZonedDateTime::now().date();
 
     if let (Some(previous_tag), Some(repo_slug)) = (previous_tag, repo_slug) {
         output.push_str(&format!(
@@ -223,7 +223,7 @@ fn render_keep_a_changelog_entry(
     commits: &[CommitEntry],
     repo_slug: Option<&str>,
 ) -> String {
-    let mut output = format!("## [{version}] - {}\n\n", Local::now().format("%Y-%m-%d"));
+    let mut output = format!("## [{version}] - {}\n\n", ZonedDateTime::now().date());
     let mut rendered_any = false;
 
     for heading in ["Added", "Fixed", "Changed"] {
