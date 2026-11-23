@@ -106,8 +106,8 @@ config + manifests + Git history
 - Real releases require a clean worktree by default. Relaxed mode still requires a clean index and
   clean release files.
 - `verso status`, `verso resume`, and `verso abort` inspect, continue, or safely roll back an
-  interrupted transaction. Once push starts, abort is disabled and recovery continues through
-  `resume`.
+  interrupted transaction. After a recorded push failure, `abort` rolls back locally if the target
+  tag is absent and the target branch does not contain the release commit.
   Before push starts, if a manual rollback restored the original `HEAD` and file contents, removed
   the release tag, and left a clean worktree, `abort` clears the journal without contacting the remote.
 

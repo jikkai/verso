@@ -63,31 +63,33 @@ abort。
 阶段继续。进程停止时正在运行的 hook 结果未知；应先检查副作用，再明确使用 `--retry-hook` 或
 `--skip-hook`。
 
-有事务时再次执行会修改仓库的 release 或 bump，Verso 会显示其发布组、版本对和阶段，再提示 resume 或
-abort。恢复操作会结束本次调用，不会接着开始用户刚请求的新发布。
+有事务时再次执行会修改仓库的 release 或 bump，Verso 会显示其发布组、版本对和阶段，再提示选择恢复操作。
+推送开始前或记录推送失败后，可以选择 `Abort`。恢复完成后，重新执行 release 或 bump 即可开启新事务。
 
 `abort` 很保守：只通过 compare-and-delete 删除 Verso 创建的准确 tag object，只对预期 release commit
 做 soft reset，只取消计划路径的暂存，并且只在文件仍等于计划 after 内容时恢复。遇到意外 `HEAD`、移动
 过的 tag 或后来编辑的文件时，它会拒绝覆盖无关工作。release commit 创建后，abort 还会检查固定远端；
 若目标 tag 不属于事务，或 branch 已包含 release commit，则拒绝自动回滚。
 
-<Callout variant="danger" title="Push 是恢复边界">
-  Push 一旦开始，由于远端结果可能未知，abort 就会被禁用。`verso resume` 会对照固定远端检查持久化的
-  tag 和 commit，再在安全时完成或重试同一次原子推送。ref 不完整或不匹配时必须手工恢复。
-
-如果无法再精确恢复，请先检查仓库和远端。`verso abort --force` 只丢弃活动日志，刻意保留文件、
-commit、tag 和远端 ref 原样。
-
+<Callout variant="note" title="推送失败后回滚">
+  记录推送失败后，如果固定远端没有目标 tag，且目标分支不包含发布 commit，`verso abort` 会回滚本地。
+  远端不可访问、ref 不完整或不匹配，或者本地文件在发布后被编辑，都可能阻止回滚。
 </Callout>
+
+<Callout variant="danger" title="推送中断或已发布">
+  如果推送中断时还未记录失败，`verso resume` 会核对固定远端，并在安全时完成或重试同一次原子推送。
+  已发布的事务可通过 `resume` 完成后续步骤。ref 不完整或不匹配时需要手工恢复。
+</Callout>
+
+手工恢复完成后，`verso abort --force` 只丢弃活动日志，保留文件、commit、tag 和远端 ref 原样。
 
 即使 push 开始后本地 `HEAD` 前进，resume 仍会使用事务开始时持久化的 push URL、commit 和 tag。
 
 ## 错误与取消行为
 
 推送前可明确处理的文件、hook、commit 和 tag 错误会触发 best-effort 本地 abort。release hook 失败时
-会先检查固定远端；若无法检查，Verso 会保留事务，而不会假设 hook 没有发布。进程崩溃、用户在后续确认
-中取消或状态不明确时会保留事务日志；push 尚未开始时可选择 `resume` 或 `abort`。push 失败只允许
-`resume`。
+会先检查固定远端；若无法检查，Verso 会保留事务日志供后续恢复。进程崩溃、用户在后续确认中取消或
+状态不明确时也会保留事务日志。
 
 | 停止位置                     | 持久化状态与下一步                                                       |
 | ---------------------------- | ------------------------------------------------------------------------ |
@@ -95,7 +97,7 @@ commit、tag 和远端 ref 原样。
 | 已写文件 / commit 之前       | 文件保持未暂存；`resume` 会提交，`abort` 会恢复                          |
 | 已有 commit / tag 之前       | 保留预期 release commit；`resume` 会加 tag，`abort` 会 soft reset 并恢复 |
 | 已有 tag / push 之前         | 保留本地 commit 和 tag；`resume` 会推送，`abort` 会删除预期的本地修改    |
-| 原子推送失败                 | 保留本地 commit、tag 和日志；修复或检查远端后 `resume`                   |
+| 原子推送失败                 | 保留本地 commit、tag 和日志；`resume` 和 `abort` 都会先核对远端          |
 | 推送成功 / `after_push` 失败 | 保留本地和远端 ref；只允许 `resume`                                      |
 
 清理绝不会使用 hard reset。恢复、取消暂存、reset、删除 tag、日志或远端验证错误都会明确报告，而不会被隐藏。

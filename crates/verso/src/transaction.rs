@@ -54,8 +54,12 @@ pub struct ReleaseTransaction {
     pub push_failed: bool,
     #[serde(default)]
     pub aborting: bool,
-    #[serde(default)]
-    pub abort_remote_check: bool,
+}
+
+impl ReleaseTransaction {
+    pub const fn can_abort(&self) -> bool {
+        !matches!(self.stage, TransactionStage::Pushed) && (!self.push_started || self.push_failed)
+    }
 }
 
 pub struct TransactionLock {
@@ -114,7 +118,6 @@ pub fn begin(
         push_started: false,
         push_failed: false,
         aborting: false,
-        abort_remote_check: false,
     };
     create(root, &transaction)?;
     Ok(transaction)
@@ -244,20 +247,8 @@ pub fn fail_push(transaction: &mut ReleaseTransaction) -> Result<(), String> {
     save(transaction)
 }
 
-pub fn start_abort(
-    transaction: &mut ReleaseTransaction,
-    verify_remote: bool,
-) -> Result<(), String> {
-    if !transaction.aborting {
-        transaction.aborting = true;
-        transaction.abort_remote_check = verify_remote;
-        save(transaction)?;
-    }
-    Ok(())
-}
-
-pub fn finish_abort_remote_check(transaction: &mut ReleaseTransaction) -> Result<(), String> {
-    transaction.abort_remote_check = false;
+pub fn start_abort(transaction: &mut ReleaseTransaction) -> Result<(), String> {
+    transaction.aborting = true;
     save(transaction)
 }
 
@@ -355,7 +346,7 @@ pub fn render_status(transaction: Option<&ReleaseTransaction>, json_output: bool
             "targetVersion": transaction.plan.target_version.to_string(),
             "activeHook": transaction.active_hook,
             "changedFiles": transaction.plan.file_changes.len(),
-            "canAbort": transaction.stage != TransactionStage::Pushed && !transaction.push_started,
+            "canAbort": transaction.can_abort(),
             "commitStarted": transaction.commit_started,
             "pushStarted": transaction.push_started,
             "pushFailed": transaction.push_failed,
@@ -385,8 +376,11 @@ pub fn render_status(transaction: Option<&ReleaseTransaction>, json_output: bool
     } else {
         output.push_str("\nRun `verso resume` to continue");
     }
-    if transaction.stage != TransactionStage::Pushed && !transaction.push_started {
+    if !transaction.aborting && transaction.can_abort() {
         output.push_str(" or `verso abort` to roll back");
+        if transaction.push_failed {
+            output.push_str(" after checking the remote");
+        }
     }
     output.push_str(
         ".\nRun `verso abort --force` only to discard the journal after manual recovery.\n",

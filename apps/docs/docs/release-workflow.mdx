@@ -67,8 +67,9 @@ process stopped has an unknown outcome: inspect its side effects, then explicitl
 or `--skip-hook`.
 
 If another mutating release or bump is started while a transaction is active, Verso shows its group,
-version pair, and stage, then prompts to resume or abort it. Recovery completes that invocation; it
-does not continue into the newly requested release.
+version pair, and stage, then prompts for a recovery action. Abort is available in that prompt before
+push begins and after a recorded push failure. Rerun the release or bump command after recovery to
+start a new transaction.
 
 `abort` is conservative. It compare-and-deletes only the exact tag object Verso created, soft-resets
 only the expected release commit, unstages only planned paths, and restores a file only when it still
@@ -81,16 +82,20 @@ match their original state, the release tag must be absent, and the worktree and
 In that case, `abort` only clears the journal and needs no remote connection. A clean worktree alone
 does not prove that the release was rolled back.
 
-<Callout variant="danger" title="Push is the recovery boundary">
-  Once push starts, abort is disabled because the remote outcome may be unknown. `verso resume`
-  verifies the persisted tag and commit against the pinned remote, then finishes or retries the same
-  atomic push when safe. Partial or mismatched refs require manual recovery.
-
-If exact recovery is no longer possible, inspect the repository and remote first. `verso abort
-  --force` discards only the active journal; it deliberately leaves files, commits, tags, and remote
-refs untouched.
-
+<Callout variant="note" title="Abort after a failed push">
+  After a recorded failure, `verso abort` rolls back locally if the pinned remote has no target tag
+  and its target branch does not contain the release commit. An unreachable remote, partial or
+  mismatched refs, or later local edits can block rollback.
 </Callout>
+
+<Callout variant="danger" title="Push interrupted or already published">
+  If push was interrupted before a failure was recorded, `verso resume` checks the pinned remote and
+  finishes or retries the same atomic push when safe. If the release was published, use `resume` to
+  finish it. Partial or mismatched refs require manual recovery.
+</Callout>
+
+After manual recovery, `verso abort --force` discards only the active journal and leaves files,
+commits, tags, and remote refs intact.
 
 Resume keeps using the push URL, commit, and tag persisted when the transaction started, even if
 local `HEAD` advances after push begins.
@@ -100,8 +105,7 @@ local `HEAD` advances after push begins.
 Expected file, hook, commit, and tag failures before push trigger a best-effort local abort. Release
 hook failures are checked against the pinned remote first; if that remote cannot be inspected, Verso
 preserves the journal instead of assuming the hook did not publish. A crash, user cancellation at a
-later confirmation, or an ambiguous state preserves the journal so the user can choose `resume` or
-`abort` while push has not started. A push failure preserves the journal for `resume` only.
+later confirmation, or an ambiguous state preserves the journal for recovery.
 
 | Stopping point                       | Persisted state and next action                                                         |
 | ------------------------------------ | --------------------------------------------------------------------------------------- |
@@ -109,7 +113,7 @@ later confirmation, or an ambiguous state preserves the journal so the user can 
 | Files applied / before commit        | Files remain unstaged; `resume` commits or `abort` restores them                        |
 | Commit created / before tag          | Expected release commit remains; `resume` tags or `abort` soft-resets and restores      |
 | Tag created / before push            | Local commit and tag remain; `resume` pushes or `abort` removes the expected local work |
-| Atomic push failed                   | Local commit, tag, and journal remain; fix or inspect the remote, then `resume`         |
+| Atomic push failed                   | Local commit, tag, and journal remain; `resume` or `abort` checks the remote            |
 | Push succeeded / `after_push` failed | Local and remote refs remain; only `resume` is allowed                                  |
 
 Cleanup never uses a hard reset. Restore, unstage, reset, tag-delete, journal, or remote-verification

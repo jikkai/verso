@@ -130,7 +130,8 @@ verso [--config <PATH> | --group <NAME>] abort [--force]
 
 `status` shows the active operation, group, stage, version pair, interrupted hook, and changed-file
 count. With `--json`, it also reports `canAbort`, `canForceAbort`, `pushStarted`, and `pushFailed`;
-when no transaction exists, it returns `{ "active": false }`.
+when no transaction exists, it returns `{ "active": false }`. `canAbort` indicates whether abort can
+be attempted. A failed push still requires remote verification at abort time.
 
 `resume` verifies the persisted plan, skips completed work, and continues from the recorded stage.
 If a hook was interrupted, inspect its side effects and choose exactly one of `--retry-hook` or
@@ -139,9 +140,10 @@ If a hook was interrupted, inspect its side effects and choose exactly one of `-
 `abort` rolls back only state still owned by the transaction and refuses to overwrite later edits.
 After manual recovery, `abort --force` discards only the journal and leaves files and refs unchanged.
 
-<Callout variant="danger" title="After push starts, resume only">
-  A remote result may be unknown, so Verso disables abort as soon as push starts. Inspect the
-  remote, then use `resume`; do not use `abort --force` as a rollback.
+<Callout variant="note" title="Abort after a failed push">
+  After a recorded push failure, `abort` checks the pinned remote for the target tag and whether the
+  target branch contains the release commit. Both must be absent for local rollback. If the push was
+  interrupted before a failure was recorded, use `resume` to reconcile the remote state.
 </Callout>
 
 See [Release workflow](/release-workflow/) for the exact stage model, reconciliation rules, and
