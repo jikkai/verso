@@ -14,6 +14,7 @@ use crate::{
 use inquire::{Confirm, Select, Text};
 use semver::Version;
 use std::{
+    collections::HashSet,
     fmt, fs,
     io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
@@ -140,8 +141,7 @@ fn run_mode(cli: Cli, mode: PlanMode, bump_level: Option<BumpLevel>) -> Result<(
     match execute_transaction(&mut active, cli.yes, false) {
         Ok(()) => Ok(()),
         Err(failure) if failure.rollback => {
-            let verify_remote = active.plan.mode == PlanMode::Release;
-            let rollback = abort_transaction(&mut active, verify_remote);
+            let rollback = abort_transaction(&mut active);
             Err(match rollback {
                 Ok(()) => failure.message,
                 Err(rollback_error) => {
@@ -246,10 +246,16 @@ fn prompt_active_transaction(
         active.plan.target_version,
         active.stage.as_str(),
     );
-    let choices = vec![
-        ActiveTransactionChoice::Resume,
-        ActiveTransactionChoice::Abort,
-    ];
+    let can_abort = active.can_abort();
+    let mut choices = vec![ActiveTransactionChoice::Resume];
+    if can_abort {
+        choices.push(ActiveTransactionChoice::Abort);
+        if active.push_failed {
+            println!("The last push failed. Abort checks the remote before rolling back.");
+        }
+    } else {
+        println!("Push has started. Resume to recover the release.");
+    }
     if interactive_terminal() {
         return Select::new("Recover the active transaction", choices)
             .prompt()
@@ -263,15 +269,15 @@ fn prompt_active_transaction(
     loop {
         match read_prompt("Choice: ")?.to_ascii_lowercase().as_str() {
             "1" | "r" | "resume" => return Ok(ActiveTransactionChoice::Resume),
-            "2" | "a" | "abort" => return Ok(ActiveTransactionChoice::Abort),
-            _ => println!("Please choose resume or abort."),
+            "2" | "a" | "abort" if can_abort => return Ok(ActiveTransactionChoice::Abort),
+            _ => println!("Choose one of the listed options."),
         }
     }
 }
 
 fn resume_transaction(active: &mut ReleaseTransaction, args: &ResumeArgs) -> Result<(), String> {
     if active.aborting {
-        abort_transaction(active, false)?;
+        abort_transaction(active)?;
         println!("Completed the interrupted Verso rollback.");
         return Ok(());
     }
@@ -280,7 +286,7 @@ fn resume_transaction(active: &mut ReleaseTransaction, args: &ResumeArgs) -> Res
 }
 
 fn abort_loaded_transaction(active: &mut ReleaseTransaction) -> Result<(), String> {
-    abort_transaction(active, true)?;
+    abort_transaction(active)?;
     println!("Aborted Verso transaction and restored release files.");
     Ok(())
 }
@@ -489,6 +495,8 @@ fn execute_transaction(
                 message.push_str(&format!(
                     "\nnote: failed to record push failure: {journal_error}"
                 ));
+            } else {
+                message.push_str("\nhelp: to cancel, run `verso abort` to check the remote and roll back locally.");
             }
             return Err(ExecutionFailure::preserve(message));
         }
@@ -845,22 +853,19 @@ fn verify_clean_for_plan(plan: &ReleasePlan, config: &config::Config) -> Result<
     Ok(())
 }
 
-fn abort_transaction(active: &mut ReleaseTransaction, verify_push: bool) -> Result<(), String> {
-    if active.stage == TransactionStage::Pushed {
-        return Err(
+fn abort_transaction(active: &mut ReleaseTransaction) -> Result<(), String> {
+    if !active.can_abort() {
+        let message = if active.stage == TransactionStage::Pushed {
             "cannot abort a release that was pushed\n\nhelp: finish it with `verso resume`."
-                .to_string(),
-        );
+        } else {
+            "cannot abort because the push was interrupted before a failure was recorded\n\nhelp: run `verso resume` to check the remote and recover the release."
+        };
+        return Err(message.to_string());
     }
     let root = active.plan.root.clone();
-    if active.push_started {
-        return Err(
-            "cannot automatically abort after a push was started because its outcome may be unknown\n\nhelp: run `verso resume` to retry the exact release refs. After manual recovery, run `verso abort --force` to discard only the transaction journal."
-                .to_string(),
-        );
-    }
     let current_head = git::current_head(&root)?;
-    if current_head == active.before_head
+    if !active.push_started
+        && current_head == active.before_head
         && git::is_worktree_clean(&root)?
         && transaction::files_state(active)? == FilesState::Original
         && match &active.plan.tag_name {
@@ -877,26 +882,20 @@ fn abort_transaction(active: &mut ReleaseTransaction, verify_push: bool) -> Resu
     {
         active.release_head = Some(current_head.clone());
     }
-    let verify_remote = verify_push
-        && active.plan.mode == PlanMode::Release
-        && (active.commit_started
+    let verify_remote = active.plan.mode == PlanMode::Release
+        && (active.push_started
+            || active.commit_started
             || active.release_head.is_some()
             || active.tag_object.is_some()
             || active.active_hook.is_some()
             || !active.completed_hooks.is_empty());
-    transaction::start_abort(active, verify_remote)?;
-    if active.abort_remote_check {
-        if remote_may_contain_release(active)? {
-            active.stage = TransactionStage::Pushed;
-            active.aborting = false;
-            active.abort_remote_check = false;
-            transaction::save(active)?;
-            return Err(
-                "cannot abort because the exact release refs are already present on the remote\n\nhelp: run `verso resume` to finish the pushed release."
-                    .to_string(),
-            );
-        }
-        transaction::finish_abort_remote_check(active)?;
+    if verify_remote && remote_may_contain_release(active)? {
+        active.aborting = false;
+        transaction::set_stage(active, TransactionStage::Pushed)?;
+        return Err(
+            "cannot abort because the exact release refs are already present on the remote\n\nhelp: run `verso resume` to finish the pushed release."
+                .to_string(),
+        );
     }
 
     let release_head = active.release_head.clone();
@@ -915,19 +914,20 @@ fn abort_transaction(active: &mut ReleaseTransaction, verify_push: bool) -> Resu
     }
     transaction::files_state(active)?;
 
-    if let (Some(tag_name), Some(expected_object)) = (&active.plan.tag_name, &active.tag_object) {
-        if let Some(actual_object) = transaction::tag_object(&root, tag_name)? {
-            if actual_object != *expected_object {
-                return Err(format!(
+    let tag_to_delete = match (&active.plan.tag_name, &active.tag_object) {
+        (Some(tag_name), Some(expected_object)) => {
+            match transaction::tag_object(&root, tag_name)? {
+                Some(actual_object) if actual_object != *expected_object => {
+                    return Err(format!(
                     "refusing to delete tag {tag_name}; it has object {actual_object}, expected {expected_object}"
                 ));
+                }
+                Some(_) => Some((tag_name.clone(), expected_object.clone())),
+                None => None,
             }
-            git::delete_tag_ref(&root, tag_name, expected_object)?;
         }
-    }
-    if current_head != active.before_head {
-        git::compare_and_swap_head(&root, &active.before_head, &current_head)?;
-    }
+        _ => None,
+    };
     let paths = relative_path_strings(
         &root,
         &active
@@ -937,9 +937,61 @@ fn abort_transaction(active: &mut ReleaseTransaction, verify_push: bool) -> Resu
             .map(|change| change.path.clone())
             .collect::<Vec<_>>(),
     );
+    if active.push_started {
+        verify_abort_index(active, &required_release_head(active)?, &paths)?;
+    }
+
+    transaction::start_abort(active)?;
+    if let Some((tag_name, expected_object)) = tag_to_delete {
+        git::delete_tag_ref(&root, &tag_name, &expected_object)?;
+    }
+    if current_head != active.before_head {
+        git::compare_and_swap_head(&root, &active.before_head, &current_head)?;
+    }
     git::unstage_paths(&root, &paths)?;
     transaction::restore_files(active)?;
     transaction::clear(&root)
+}
+
+fn verify_abort_index(
+    active: &ReleaseTransaction,
+    release_head: &str,
+    paths: &[String],
+) -> Result<(), String> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let staged_changes = |head| {
+        let mut args = vec![
+            "--literal-pathspecs",
+            "diff",
+            "--cached",
+            "--name-only",
+            "--no-renames",
+            "-z",
+            head,
+            "--",
+        ];
+        args.extend(paths.iter().map(String::as_str));
+        git::git(&active.plan.root, &args)
+    };
+    // An interrupted rollback can leave either snapshot staged.
+    let original = staged_changes(&active.before_head)?;
+    let applied = staged_changes(release_head)?;
+    let original_changes = original
+        .stdout
+        .split_terminator('\0')
+        .collect::<HashSet<_>>();
+    if let Some(path) = applied
+        .stdout
+        .split_terminator('\0')
+        .find(|path| original_changes.contains(path))
+    {
+        return Err(format!(
+            "refusing to overwrite later staged changes in {path}"
+        ));
+    }
+    Ok(())
 }
 
 fn remote_contains_release(active: &ReleaseTransaction) -> Result<bool, String> {
@@ -953,10 +1005,17 @@ fn remote_contains_release(active: &ReleaseTransaction) -> Result<bool, String> 
 }
 
 fn remote_may_contain_release(active: &ReleaseTransaction) -> Result<bool, String> {
+    let release = active
+        .release_head
+        .as_deref()
+        .zip(active.tag_object.as_deref());
+    if active.push_started && release.is_none() {
+        return Err(
+            "cannot verify a failed push without its recorded release commit and tag".to_string(),
+        );
+    }
     let refs = remote_release_refs(active)?;
-    if let (Some(release_head), Some(tag_object)) =
-        (active.release_head.as_deref(), active.tag_object.as_deref())
-    {
+    if let Some((release_head, tag_object)) = release {
         if remote_release_is_published(active, &refs, release_head, tag_object)? {
             return Ok(true);
         }

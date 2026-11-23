@@ -98,8 +98,8 @@ commit、tag 或 push。
 - `verso --dry-run` 会输出准确的 before/after 文件 diff、hook、警告和 Git 命令，不写文件，也不修改 Git。
 - `verso bump patch|minor|major` 或 `verso bump --version <SEMVER>` 只应用版本文件修改。
 - 真正发布默认要求工作区干净。宽松模式仍要求 index 和 release 文件干净。
-- `verso status`、`verso resume` 和 `verso abort` 可以检查、继续或安全回滚中断的事务。Push 一旦开始，
-  abort 就会被禁用，恢复只能通过 `resume` 继续。
+- `verso status`、`verso resume` 和 `verso abort` 可以检查、继续或安全回滚中断的事务。记录推送失败后，
+  如果目标 tag 不存在且目标分支不包含发布 commit，`abort` 可以回滚本地发布。
   Push 开始前，若手工回滚已恢复原始 `HEAD` 和文件、删除发布 tag，且工作区 clean，`abort` 会直接清除
   日志，无需连接远端。
 

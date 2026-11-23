@@ -1312,7 +1312,7 @@ fn files_applied_status_and_abort_restore_transaction() -> Result<(), Box<dyn st
 }
 
 #[test]
-fn push_failure_requires_resume_and_rejects_partial_remote_state(
+fn failed_push_preserves_recovery_when_remote_state_is_unverified(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repo = TempDir::new()?;
     write_release_fixture(repo.path())?;
@@ -1344,7 +1344,7 @@ fn push_failure_requires_resume_and_rejects_partial_remote_state(
     assert_eq!(status["stage"], "tagged");
     assert_eq!(status["pushStarted"], true);
     assert_eq!(status["pushFailed"], true);
-    assert_eq!(status["canAbort"], false);
+    assert_eq!(status["canAbort"], true);
     assert_eq!(
         git_stdout(repo.path(), &["log", "-1", "--pretty=%s"])?.trim(),
         "chore(release): release v0.2.0"
@@ -1360,7 +1360,7 @@ fn push_failure_requires_resume_and_rejects_partial_remote_state(
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "cannot automatically abort after a push was started",
+            "cannot inspect the remote release refs",
         ));
 
     let remote = repo.path().join(".git/release-test-remote.git");
@@ -1370,6 +1370,14 @@ fn push_failure_requires_resume_and_rejects_partial_remote_state(
     let branch_ref = format!("HEAD:refs/heads/{}", branch.trim());
     git(repo.path(), &["push", "origin", &branch_ref])?;
 
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .arg("abort")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "remote release refs are partial or moved",
+        ));
     Command::cargo_bin("verso")?
         .current_dir(repo.path())
         .arg("resume")
@@ -1387,6 +1395,12 @@ fn push_failure_requires_resume_and_rejects_partial_remote_state(
     )?;
     Command::cargo_bin("verso")?
         .current_dir(repo.path())
+        .arg("abort")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("does not contain release commit"));
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
         .arg("resume")
         .assert()
         .failure()
@@ -1394,10 +1408,20 @@ fn push_failure_requires_resume_and_rejects_partial_remote_state(
     git(repo.path(), &["push", "origin", ":refs/tags/v0.2.0"])?;
     Command::cargo_bin("verso")?
         .current_dir(repo.path())
-        .arg("resume")
+        .args(["--version", "0.3.0"])
+        .write_stdin("resume\n")
         .assert()
         .success();
 
+    let remote_tag = git_stdout(
+        repo.path(),
+        &["ls-remote", "--refs", "origin", "refs/tags/v0.2.0"],
+    )?;
+    let tag_object = git_stdout(repo.path(), &["rev-parse", "refs/tags/v0.2.0"])?;
+    assert_eq!(
+        remote_tag.trim(),
+        format!("{}\trefs/tags/v0.2.0", tag_object.trim())
+    );
     let status_output = Command::cargo_bin("verso")?
         .current_dir(repo.path())
         .args(["status", "--json"])
@@ -1405,6 +1429,84 @@ fn push_failure_requires_resume_and_rejects_partial_remote_state(
     let status: serde_json::Value = serde_json::from_slice(&status_output.stdout)?;
     assert_eq!(status["active"], false);
 
+    Ok(())
+}
+
+#[test]
+fn failed_push_can_be_aborted_when_the_release_is_absent_from_the_remote(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for interactive in [false, true] {
+        let repo = TempDir::new()?;
+        write_release_fixture(repo.path())?;
+        let before_head = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
+
+        Command::cargo_bin("verso")?
+            .current_dir(repo.path())
+            .args(["--version", "0.2.0", "--yes"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "Local release commit and tag were created",
+            ));
+
+        let remote = repo.path().join(".git/release-test-remote.git");
+        git(
+            repo.path(),
+            &["init", "--bare", remote.to_str().ok_or("non-UTF-8 path")?],
+        )?;
+        let branch = git_stdout(repo.path(), &["symbolic-ref", "--short", "HEAD"])?;
+        let branch_ref = format!("{}:refs/heads/{}", before_head.trim(), branch.trim());
+        git(repo.path(), &["push", "origin", &branch_ref])?;
+        let remote_refs = git_stdout(repo.path(), &["ls-remote", "--refs", "origin"])?;
+
+        if !interactive {
+            let manifest = repo.path().join("package.json");
+            let release_contents = fs::read_to_string(&manifest)?;
+            let staged_contents = release_contents.replace("0.2.0", "0.2.1");
+            write_file(&manifest, &staged_contents)?;
+            git(repo.path(), &["add", "package.json"])?;
+            write_file(&manifest, &release_contents)?;
+
+            Command::cargo_bin("verso")?
+                .current_dir(repo.path())
+                .arg("abort")
+                .assert()
+                .failure()
+                .stderr(predicate::str::contains(
+                    "later staged changes in package.json",
+                ));
+            assert_eq!(
+                git_stdout(repo.path(), &["show", ":package.json"])?.trim_end(),
+                staged_contents.trim_end()
+            );
+            assert_eq!(
+                git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?.trim(),
+                "v0.2.0"
+            );
+            git(repo.path(), &["restore", "--staged", "--", "package.json"])?;
+        }
+
+        let mut command = Command::cargo_bin("verso")?;
+        command.current_dir(repo.path());
+        if interactive {
+            command.args(["--version", "0.3.0"]).write_stdin("abort\n");
+        } else {
+            command.arg("abort");
+        }
+        command.assert().success();
+
+        assert_eq!(
+            git_stdout(repo.path(), &["rev-parse", "HEAD"])?,
+            before_head
+        );
+        assert_eq!(git_stdout(repo.path(), &["status", "--porcelain"])?, "");
+        assert_eq!(git_stdout(repo.path(), &["tag", "--list", "v0.2.0"])?, "");
+        assert_eq!(
+            git_stdout(repo.path(), &["ls-remote", "--refs", "origin"])?,
+            remote_refs
+        );
+        assert!(!repo.path().join(".git/verso/active.json").exists());
+    }
     Ok(())
 }
 
@@ -1440,7 +1542,6 @@ fn force_abort_unlocks_a_transaction_after_the_release_tag_was_removed(
         .args(["status", "--json"])
         .output()?;
     let status: serde_json::Value = serde_json::from_slice(&status_output.stdout)?;
-    assert_eq!(status["canAbort"], false);
     assert_eq!(status["canForceAbort"], true);
 
     Command::cargo_bin("verso")?
@@ -1604,7 +1705,7 @@ fn abort_clears_a_manually_restored_release_without_contacting_the_remote(
 }
 
 #[test]
-fn manual_local_rollback_after_push_starts_still_requires_force_abort(
+fn manual_local_rollback_after_failed_push_still_requires_remote_verification(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repo = TempDir::new()?;
     write_release_fixture(repo.path())?;
@@ -1626,12 +1727,17 @@ fn manual_local_rollback_after_push_starts_still_requires_force_abort(
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "cannot automatically abort after a push was started",
+            "cannot inspect the remote release refs",
         ));
     assert!(repo.path().join(".git/verso/active.json").exists());
+    let remote = repo.path().join(".git/release-test-remote.git");
+    git(
+        repo.path(),
+        &["init", "--bare", remote.to_str().ok_or("non-UTF-8 path")?],
+    )?;
     Command::cargo_bin("verso")?
         .current_dir(repo.path())
-        .args(["abort", "--force"])
+        .arg("abort")
         .assert()
         .success();
     assert!(!repo.path().join(".git/verso/active.json").exists());
@@ -1798,20 +1904,19 @@ fn abort_refuses_when_the_remote_branch_already_contains_the_release(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repo = TempDir::new()?;
     write_release_fixture(repo.path())?;
+    Command::cargo_bin("verso")?
+        .current_dir(repo.path())
+        .args(["--version", "0.2.0", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Local release commit and tag were created",
+        ));
+
     let remote = repo.path().join(".git/release-test-remote.git");
     let remote_string = remote.to_str().ok_or("non-UTF-8 path")?;
     git(repo.path(), &["init", "--bare", remote_string])?;
     let branch = git_stdout(repo.path(), &["symbolic-ref", "--short", "HEAD"])?;
-    let branch_ref = format!("HEAD:refs/heads/{}", branch.trim());
-    git(repo.path(), &["push", "origin", &branch_ref])?;
-
-    Command::cargo_bin("verso")?
-        .current_dir(repo.path())
-        .args(["--version", "0.2.0"])
-        .write_stdin("y\ny\ny\nn\n")
-        .assert()
-        .failure();
-
     let release_head = git_stdout(repo.path(), &["rev-parse", "HEAD"])?;
     let release_head = release_head.trim();
     let tree = format!("{release_head}^{{tree}}");

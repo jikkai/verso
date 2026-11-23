@@ -276,11 +276,10 @@ pub fn unstage_paths(root: &Path, paths: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
-    let mut args = vec!["reset".to_string(), "--".to_string()];
-    args.extend(paths.iter().cloned());
-    let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let mut args = vec!["--literal-pathspecs", "reset", "--"];
+    args.extend(paths.iter().map(String::as_str));
 
-    git(root, &arg_refs)?;
+    git(root, &args)?;
     Ok(())
 }
 

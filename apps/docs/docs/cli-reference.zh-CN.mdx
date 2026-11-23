@@ -120,6 +120,7 @@ verso [--config <PATH> | --group <NAME>] abort [--force]
 
 `status` 会显示当前操作、发布组、阶段、版本对、中断的 hook 和修改文件数。使用 `--json` 时还会输出
 `canAbort`、`canForceAbort`、`pushStarted` 和 `pushFailed`；没有事务时返回 `{ "active": false }`。
+`canAbort` 表示当前可以尝试回滚。推送失败后，仍需在执行 `abort` 时验证远端。
 
 `resume` 会检查持久化计划、跳过已完成的工作，再从记录阶段继续。如果 hook 执行时中断，应先检查其
 副作用，再从 `--retry-hook` 和 `--skip-hook` 中明确选择一个。
@@ -127,9 +128,9 @@ verso [--config <PATH> | --group <NAME>] abort [--force]
 `abort` 只回滚仍由事务拥有的状态，并拒绝覆盖后来修改。手工恢复后，`abort --force` 只丢弃日志，保留
 文件和 ref 原样。
 
-<Callout variant="danger" title="Push 开始后只能 resume">
-  远端结果可能未知，因此 Verso 会在 push 开始后禁用 abort。请先检查远端，再使用 `resume`；不要把
-  `abort --force` 当作回滚命令。
+<Callout variant="note" title="推送失败后回滚">
+  记录推送失败后，`abort` 会检查固定远端的目标 tag 和目标分支。只有目标 tag 不存在且目标分支不包含
+  发布 commit 时才会回滚本地。如果推送中断时还未记录失败，请用 `resume` 核对远端状态。
 </Callout>
 
 准确阶段、校准规则和失败矩阵见[发布流程](/zh-CN/release-workflow/)。
