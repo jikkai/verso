@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.1](https://github.com/jikkai/verso/compare/v1.3.0...v1.3.1) (2026-11-23)
+
+### Bug Fixes
+
+* **release:** allow abort after a failed push ([#17](https://github.com/jikkai/verso/issues/17)) ([fc32e3e](https://github.com/jikkai/verso/commit/fc32e3e503c8dfb781410b933a7cd37df4fad7c3))
+
 ## [1.3.0](https://github.com/jikkai/verso/compare/v1.2.0...v1.3.0) (2026-10-23)
 
 ### Bug Fixes
