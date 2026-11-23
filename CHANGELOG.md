@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.2](https://github.com/jikkai/verso/compare/v1.3.1...v1.3.2) (2026-11-23)
+
+### Bug Fixes
+
+* **ci:** use macOS 15 for ARM64 releases ([#18](https://github.com/jikkai/verso/issues/18)) ([563488d](https://github.com/jikkai/verso/commit/563488db771818b81dde722d452441d4de32e4f0))
+
 ## [1.3.1](https://github.com/jikkai/verso/compare/v1.3.0...v1.3.1) (2026-11-23)
 
 ### Bug Fixes
